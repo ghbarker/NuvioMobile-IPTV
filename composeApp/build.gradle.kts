@@ -177,6 +177,20 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             )
         }
 
+        outDir.resolve("com/nuvio/app/features/livetv/sync").apply {
+            mkdirs()
+            resolve("LiveTvDriveConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.livetv.sync
+                |
+                |object LiveTvDriveConfig {
+                |    const val CLIENT_ID = "${props.getProperty("GOOGLE_DRIVE_CLIENT_ID", "")}"
+                |    const val CLIENT_SECRET = "${props.getProperty("GOOGLE_DRIVE_CLIENT_SECRET", "")}"
+                |}
+                """.trimMargin()
+            )
+        }
+
         outDir.resolve("com/nuvio/app/core/build").apply {
             mkdirs()
             resolve("AppVersionConfig.kt").writeText(

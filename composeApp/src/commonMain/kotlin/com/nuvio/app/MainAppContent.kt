@@ -137,6 +137,9 @@ import com.nuvio.app.features.player.externalPlaybackSession
 import com.nuvio.app.features.player.infusePlaybackCallbacks
 import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
+import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.player.LiveTvPlayback
+import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -256,6 +259,7 @@ internal fun MainAppContent(
         val searchScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val searchListState = rememberLazyListState()
         val libraryScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+        val liveTvScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val settingsRootActionRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val currentRoute = navBackStack.lastOrNull() as? AppRoute
         LaunchedEffect(currentRoute, posterNavigationEnabled) {
@@ -368,6 +372,8 @@ internal fun MainAppContent(
     val newCollectionTitle = stringResource(Res.string.collections_new)
     val detailsFallbackTitle = stringResource(Res.string.meta_section_details_title)
     val watchPartyTitle = stringResource(Res.string.party_title)
+    val liveTvGuideTitle = stringResource(Res.string.livetv_guide)
+    val liveTvSettingsTitle = stringResource(Res.string.compose_settings_page_livetv)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -420,6 +426,7 @@ internal fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.LiveTv -> liveTvScrollToTopRequests.tryEmit(Unit)
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
     }
@@ -870,6 +877,11 @@ internal fun MainAppContent(
             }
             val launchId = PlayerLaunchStore.put(playerLaunch)
             navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+        }
+
+        fun openLiveChannel(channel: LiveChannel, nowTitle: String?) {
+            val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
+            navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
         }
 
         fun openExternalStreamUrl(url: String): Boolean {
@@ -1334,12 +1346,14 @@ internal fun MainAppContent(
                             searchScrollToTopRequests,
                             libraryScrollToTopRequests,
                             settingsRootActionRequests,
+                            liveTvScrollToTopRequests,
                         ) {
                             AppTabRequests(
                                 homeScrollToTopRequests = homeScrollToTopRequests,
                                 searchScrollToTopRequests = searchScrollToTopRequests,
                                 libraryScrollToTopRequests = libraryScrollToTopRequests,
                                 settingsRootActionRequests = settingsRootActionRequests,
+                                liveTvScrollToTopRequests = liveTvScrollToTopRequests,
                             )
                         },
                         state = remember(
@@ -1469,6 +1483,17 @@ internal fun MainAppContent(
                                 },
                                 onCollectionsSettingsClick = { navController.navigate(CollectionsRoute(collectionsTitle)) },
                                 onWatchPartySettingsClick = { navController.navigate(PartyRoute(title = watchPartyTitle)) },
+                                onLiveTvPlay = ::openLiveChannel,
+                                onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
+                                onLiveTvSettingsClick = {
+                                    if (useNativeNavigation && !isTabletLayout) {
+                                        activateTab(AppScreenTab.Settings)
+                                        navController.navigate(SettingsPageRoute(pageName = "LiveTv", title = liveTvSettingsTitle))
+                                    } else {
+                                        requestedSettingsPageName = "LiveTv"
+                                        activateTab(AppScreenTab.Settings)
+                                    }
+                                },
                                 onFolderClick = { collectionId, folderId ->
                                     val folderTitle = CollectionRepository.collections.value
                                         .firstOrNull { it.id == collectionId }
@@ -1608,6 +1633,14 @@ internal fun MainAppContent(
                         onTestUpdateBanner = if (
                             AppFeaturePolicy.inAppUpdaterEnabled && AppUpdaterPlatform.isDebugBuild
                         ) appUpdaterController::showDebugTestUpdate else null,
+                    )
+                }
+                entry<LiveTvGuideRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    LiveTvGuideScreen(
+                        onBack = onBack,
+                        onPlayChannel = ::openLiveChannel,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 entry<DownloadsRoute> { route ->
