@@ -40,6 +40,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :composeApp:compileAndroidMain :composeApp:testAndroidHostTest \
+            --tests 'com.nuvio.app.features.livetv.*' --tests '*RootTabHostTest*' \
             -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore --stacktrace
 
       - name: List compile tasks (on failure)
