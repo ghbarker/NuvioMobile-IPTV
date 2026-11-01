@@ -39,8 +39,12 @@ jobs:
       - name: Compile Android and run shared unit tests
         run: |
           chmod +x gradlew
-          ./gradlew :composeApp:compileFullDebugKotlinAndroid :composeApp:testFullDebugUnitTest \
+          ./gradlew :composeApp:compileAndroidMain :composeApp:testAndroidHostTest \
             -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore --stacktrace
+
+      - name: List compile tasks (on failure)
+        if: failure()
+        run: ./gradlew :composeApp:tasks --all -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore | grep -iE "compile|test" || true
 
       - name: Test report
         if: always()
