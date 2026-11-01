@@ -154,6 +154,7 @@ internal object LiveTvKeys {
     const val recordingSpaceRule = "recording_space_rule"
     const val recordPre = "record_pre_minutes"
     const val recordPost = "record_post_minutes"
+    const val recordSeriesKeep = "record_series_keep"
     const val vodSorts = "vod_sorts"
     const val homeRowEnabled = "home_row_enabled"
     const val homeRowHiddenProfiles = "home_row_hidden_profiles"
@@ -744,6 +745,7 @@ internal open class LiveTvPreferencesStore {
             recordingSpaceRule = p.str(LiveTvKeys.recordingSpaceRule) ?: d.recordingSpaceRule,
             recordPreMinutes = p.int(LiveTvKeys.recordPre) ?: d.recordPreMinutes,
             recordPostMinutes = p.int(LiveTvKeys.recordPost) ?: d.recordPostMinutes,
+            recordSeriesKeep = p.int(LiveTvKeys.recordSeriesKeep) ?: d.recordSeriesKeep,
             // The row used to be on/off for the whole app. Turned off before (with no per-profile
             // choice saved yet): that was done from the main profile, so it stays off there only.
             homeRowEnabled = true,
@@ -997,6 +999,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.recordingSpaceRule] = s.recordingSpaceRule
         p[LiveTvKeys.recordPre] = s.recordPreMinutes
         p[LiveTvKeys.recordPost] = s.recordPostMinutes
+        p[LiveTvKeys.recordSeriesKeep] = s.recordSeriesKeep
         p[LiveTvKeys.homeRowEnabled] = s.homeRowEnabled
         p[LiveTvKeys.homeRowHiddenProfiles] = s.homeRowHiddenProfiles.map { it.toString() }.toSet()
         p[LiveTvKeys.homeRowAboveContinueWatching] = s.homeRowAboveContinueWatching

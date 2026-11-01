@@ -144,6 +144,9 @@ import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
 import com.nuvio.app.features.livetv.ui.OnDemandActions
 import com.nuvio.app.features.livetv.ui.OnDemandScreen
 import com.nuvio.app.features.livetv.ui.OnDemandSeeAllScreen
+import com.nuvio.app.features.livetv.ui.RecordingsScreen
+import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.LiveTvRecording
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -380,6 +383,7 @@ internal fun MainAppContent(
     val liveTvSettingsTitle = stringResource(Res.string.compose_settings_page_livetv)
     val liveTvCatchupUnavailable = stringResource(Res.string.livetv_catchup_unavailable)
     val liveTvOnDemandTitle = stringResource(Res.string.livetv_on_demand)
+    val liveTvRecordingsTitle = stringResource(Res.string.livetv_recordings)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -904,6 +908,29 @@ internal fun MainAppContent(
             onOpenDetails = { type, tmdbId, title -> navController.navigate(DetailRoute(type = type, id = "tmdb:$tmdbId", title = title)) },
             onSeeAll = { kind, categoryUid, title -> navController.navigate(LiveTvOnDemandSeeAllRoute(kind = kind.key, categoryUid = categoryUid, title = title)) },
         )
+
+        fun openRecording(rec: LiveTvRecording) {
+            val playerLaunch = PlayerLaunch(
+                profileId = activePlaybackProfileId,
+                title = rec.title,
+                sourceUrl = LiveTvRecorder.playUrl(rec),
+                streamType = null,
+                logo = rec.channelLogo,
+                poster = rec.channelLogo,
+                streamTitle = rec.title,
+                streamSubtitle = rec.channelName,
+                pauseDescription = rec.description,
+                providerName = rec.channelName,
+                providerAddonId = LiveTvPlayback.PROVIDER_ID + "-recording",
+                contentType = LiveTvPlayback.CONTENT_TYPE,
+                videoId = "recording:" + rec.id,
+                parentMetaId = "recording:" + rec.id,
+                parentMetaType = LiveTvPlayback.CONTENT_TYPE,
+                sourceFilename = rec.fileName,
+            )
+            val launchId = PlayerLaunchStore.put(playerLaunch)
+            navController.navigate(PlayerRoute(launchId = launchId, title = rec.title))
+        }
 
         fun openLiveCatchup(channel: LiveChannel, program: EpgProgram) {
             coroutineScope.launch {
@@ -1518,6 +1545,7 @@ internal fun MainAppContent(
                                 onLiveTvPlay = ::openLiveChannel,
                                 onLiveTvReplay = ::openLiveCatchup,
                                 onLiveTvOnDemandClick = { navController.navigate(LiveTvOnDemandRoute(liveTvOnDemandTitle)) },
+                                onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSettingsClick = {
                                     if (useNativeNavigation && !isTabletLayout) {
@@ -1677,6 +1705,10 @@ internal fun MainAppContent(
                         modifier = Modifier.fillMaxSize(),
                         onPlayCatchup = ::openLiveCatchup,
                     )
+                }
+                entry<LiveTvRecordingsRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    RecordingsScreen(onBack = onBack, onPlay = ::openRecording, modifier = Modifier.fillMaxSize())
                 }
                 entry<LiveTvOnDemandRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)

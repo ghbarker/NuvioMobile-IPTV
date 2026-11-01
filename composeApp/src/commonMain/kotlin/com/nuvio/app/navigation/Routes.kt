@@ -161,6 +161,12 @@ data class LiveTvOnDemandRoute(override val title: String = "") : AppRoute {
 }
 
 @Serializable
+data class LiveTvRecordingsRoute(override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "LiveTv"
+}
+
+@Serializable
 data class LiveTvOnDemandSeeAllRoute(
     val kind: String,
     val categoryUid: String? = null,

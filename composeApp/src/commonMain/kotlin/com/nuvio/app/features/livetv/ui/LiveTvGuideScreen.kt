@@ -60,6 +60,8 @@ import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
+import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -69,6 +71,9 @@ import nuvio.composeapp.generated.resources.livetv_guide
 import nuvio.composeapp.generated.resources.livetv_guide_all
 import nuvio.composeapp.generated.resources.livetv_guide_no_info
 import nuvio.composeapp.generated.resources.livetv_guide_now
+import nuvio.composeapp.generated.resources.livetv_rec_cancel
+import nuvio.composeapp.generated.resources.livetv_rec_record
+import nuvio.composeapp.generated.resources.livetv_rec_series
 import nuvio.composeapp.generated.resources.livetv_replay
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
@@ -324,12 +329,39 @@ private fun ProgramDetailsDialog(
     LaunchedEffect(program) {
         LiveTvRepository.programDetails(channel.key, program.startMs)?.let { full = it }
     }
+    val schedules by remember { LiveTvRecordingScheduler.start(); LiveTvRecordingScheduler.schedules }.collectAsStateWithLifecycle()
+    val scheduled = remember(schedules, program) { LiveTvRecordingScheduler.isScheduled(channel.key, program) }
+    // Record: a show still to come or on now; a past show too when the channel keeps it in catch-up.
+    val recordable = !LiveTvRepository.isPlaceholderTitle(program.title) && (program.stopMs > now || LiveTvCatchup.isReplayable(channel, program, now))
     DialogSurface(onDismissRequest = onDismiss, title = full.title) {
         Text(
             text = channel.name + "  ·  " + formatClock(full.startMs) + " – " + formatClock(full.stopMs) + (full.episode?.let { "  ·  $it" } ?: ""),
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
+        if (recordable) {
+            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                Chip(
+                    label = stringResource(if (scheduled) Res.string.livetv_rec_cancel else Res.string.livetv_rec_record),
+                    selected = scheduled,
+                    onClick = {
+                        if (scheduled) LiveTvRecordingScheduler.cancel(channel.key, program.startMs)
+                        else NuvioToastController.show(LiveTvRecordingScheduler.add(channel, full))
+                        onDismiss()
+                    },
+                )
+                val series = LiveTvRecordingScheduler.seriesFor(channel.key, program.title)
+                Chip(
+                    label = stringResource(Res.string.livetv_rec_series),
+                    selected = series != null,
+                    onClick = {
+                        if (series != null) LiveTvRecordingScheduler.removeSeries(series.id)
+                        else NuvioToastController.show(LiveTvRecordingScheduler.addSeries(channel, full))
+                        onDismiss()
+                    },
+                )
+            }
+        }
         full.category?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted) }
         full.description?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 12, overflow = TextOverflow.Ellipsis)

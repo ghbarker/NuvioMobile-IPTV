@@ -44,6 +44,12 @@ import com.nuvio.app.features.livetv.model.PlaylistAccount
 import com.nuvio.app.features.livetv.model.PlaylistSource
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodSort
+import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.RecordingPlatform
+import com.nuvio.app.features.livetv.record.RecordingRules
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
 import com.nuvio.app.features.livetv.sync.SignInPrompt
 import com.nuvio.app.features.settings.SettingsGroup
@@ -107,6 +113,26 @@ import nuvio.composeapp.generated.resources.livetv_restore_message
 import nuvio.composeapp.generated.resources.livetv_section_drive
 import nuvio.composeapp.generated.resources.livetv_section_general
 import nuvio.composeapp.generated.resources.livetv_section_on_demand
+import nuvio.composeapp.generated.resources.livetv_section_recordings
+import nuvio.composeapp.generated.resources.livetv_rec_exact_alarms
+import nuvio.composeapp.generated.resources.livetv_rec_exact_alarms_description
+import nuvio.composeapp.generated.resources.livetv_rec_keep_all
+import nuvio.composeapp.generated.resources.livetv_rec_keep_last
+import nuvio.composeapp.generated.resources.livetv_rec_notifications
+import nuvio.composeapp.generated.resources.livetv_rec_notifications_description
+import nuvio.composeapp.generated.resources.livetv_rec_padding_post
+import nuvio.composeapp.generated.resources.livetv_rec_padding_post_description
+import nuvio.composeapp.generated.resources.livetv_rec_padding_pre
+import nuvio.composeapp.generated.resources.livetv_rec_padding_pre_description
+import nuvio.composeapp.generated.resources.livetv_rec_series_keep
+import nuvio.composeapp.generated.resources.livetv_rec_series_keep_description
+import nuvio.composeapp.generated.resources.livetv_rec_space_rule
+import nuvio.composeapp.generated.resources.livetv_rec_space_rule_delete
+import nuvio.composeapp.generated.resources.livetv_rec_space_rule_description
+import nuvio.composeapp.generated.resources.livetv_rec_space_rule_stop
+import nuvio.composeapp.generated.resources.livetv_rec_storage
+import nuvio.composeapp.generated.resources.livetv_rec_storage_description
+import nuvio.composeapp.generated.resources.livetv_rec_this_device
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort_description
 import nuvio.composeapp.generated.resources.livetv_vod_import
@@ -134,6 +160,8 @@ private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
 /** Time shifts in minutes, half an hour apart, a day either way (the TV app's choices). */
 private val EPG_OFFSETS = (-24..24).map { it * 30 }
+private val PADDING_MINUTES = listOf(0, 1, 2, 3, 5, 10, 15, 30)
+private val KEEP_COUNTS = listOf(0, 1, 2, 3, 5, 10, 20)
 
 /** "+1 h", "−1 h 30 min" or [none] for 0. */
 internal fun offsetLabel(min: Int, none: String): String {
@@ -164,6 +192,10 @@ private sealed interface LiveDialog {
     data object StreamFormat : LiveDialog
     data object CatchupShift : LiveDialog
     data object VodDefaultSort : LiveDialog
+    data object RecordPre : LiveDialog
+    data object RecordPost : LiveDialog
+    data object RecordKeep : LiveDialog
+    data object RecordSpaceRule : LiveDialog
     data object ConfirmRestore : LiveDialog
     data object ConfirmSignOut : LiveDialog
 }
@@ -186,6 +218,9 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
+    val scope = rememberCoroutineScope()
+    var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
+    var notificationsOn by remember { mutableStateOf(RecordingPlatform.notificationsAllowed()) }
     fun update(transform: (com.nuvio.app.features.livetv.model.LiveTvSettings) -> com.nuvio.app.features.livetv.model.LiveTvSettings) =
         LiveTvPreferences.updateSettings(transform)
 
@@ -379,6 +414,68 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
         }
 
+        SettingsSection(title = stringResource(Res.string.livetv_section_recordings), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_rec_padding_pre),
+                    description = stringResource(Res.string.livetv_rec_padding_pre_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(minutesLabel(settings.recordPreMinutes)) },
+                    onClick = { dialog = LiveDialog.RecordPre },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_rec_padding_post),
+                    description = stringResource(Res.string.livetv_rec_padding_post_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(minutesLabel(settings.recordPostMinutes)) },
+                    onClick = { dialog = LiveDialog.RecordPost },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_rec_series_keep),
+                    description = stringResource(Res.string.livetv_rec_series_keep_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(if (settings.recordSeriesKeep > 0) stringResource(Res.string.livetv_rec_keep_last, settings.recordSeriesKeep) else stringResource(Res.string.livetv_rec_keep_all)) },
+                    onClick = { dialog = LiveDialog.RecordKeep },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_rec_storage),
+                    description = stringResource(Res.string.livetv_rec_storage_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(stringResource(Res.string.livetv_rec_this_device) + " · " + RecordingRules.sizeLabel(LiveTvRecorder.freeBytes())) },
+                    onClick = {},
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_rec_space_rule),
+                    description = stringResource(Res.string.livetv_rec_space_rule_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(stringResource(if (settings.recordingSpaceRule == "DELETE_OLDEST") Res.string.livetv_rec_space_rule_delete else Res.string.livetv_rec_space_rule_stop)) },
+                    onClick = { dialog = LiveDialog.RecordSpaceRule },
+                )
+                if (!exactAlarms) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_rec_exact_alarms),
+                        description = stringResource(Res.string.livetv_rec_exact_alarms_description),
+                        isTablet = isTablet,
+                        onClick = { RecordingPlatform.requestExactAlarms(); exactAlarms = RecordingPlatform.canScheduleExact() },
+                    )
+                }
+                if (!notificationsOn) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_rec_notifications),
+                        description = stringResource(Res.string.livetv_rec_notifications_description),
+                        isTablet = isTablet,
+                        onClick = { scope.launch { notificationsOn = EpisodeReleaseNotificationPlatform.requestAuthorization() } },
+                    )
+                }
+            }
+        }
+
         SettingsSection(title = stringResource(Res.string.livetv_section_drive), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 when {
@@ -546,6 +643,33 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             selected = VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT,
             onDismiss = close,
         ) { v -> update { it.copy(vodDefaultSort = v.name) } }
+        LiveDialog.RecordPre -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_rec_padding_pre),
+            options = PADDING_MINUTES.map { it to minutesLabel(it) },
+            selected = settings.recordPreMinutes,
+            onDismiss = close,
+        ) { v -> update { it.copy(recordPreMinutes = v) } }
+        LiveDialog.RecordPost -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_rec_padding_post),
+            options = PADDING_MINUTES.map { it to minutesLabel(it) },
+            selected = settings.recordPostMinutes,
+            onDismiss = close,
+        ) { v -> update { it.copy(recordPostMinutes = v) } }
+        LiveDialog.RecordKeep -> {
+            val all = stringResource(Res.string.livetv_rec_keep_all)
+            ChoiceDialog(
+                title = stringResource(Res.string.livetv_rec_series_keep),
+                options = KEEP_COUNTS.map { it to if (it == 0) all else it.toString() },
+                selected = settings.recordSeriesKeep,
+                onDismiss = close,
+            ) { v -> update { it.copy(recordSeriesKeep = v) } }
+        }
+        LiveDialog.RecordSpaceRule -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_rec_space_rule),
+            options = listOf("STOP" to stringResource(Res.string.livetv_rec_space_rule_stop), "DELETE_OLDEST" to stringResource(Res.string.livetv_rec_space_rule_delete)),
+            selected = settings.recordingSpaceRule,
+            onDismiss = close,
+        ) { v -> update { it.copy(recordingSpaceRule = v) } }
         LiveDialog.ConfirmRestore -> ConfirmDialog(
             title = stringResource(Res.string.livetv_restore) + "?",
             message = stringResource(Res.string.livetv_restore_message),
@@ -565,6 +689,8 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
 private fun ValueLabel(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.nuvio.colors.accent)
 }
+
+private fun minutesLabel(m: Int) = if (m == 0) "None" else if (m == 1) "1 minute" else "$m minutes"
 
 private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> "Auto" }
 
