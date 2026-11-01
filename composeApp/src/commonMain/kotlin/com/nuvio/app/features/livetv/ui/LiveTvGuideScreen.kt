@@ -61,6 +61,9 @@ import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.features.livetv.reminders.LiveTvReminders
+import com.nuvio.app.features.livetv.model.Reminder
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -75,6 +78,8 @@ import nuvio.composeapp.generated.resources.livetv_rec_cancel
 import nuvio.composeapp.generated.resources.livetv_rec_record
 import nuvio.composeapp.generated.resources.livetv_rec_series
 import nuvio.composeapp.generated.resources.livetv_replay
+import nuvio.composeapp.generated.resources.livetv_remind_me
+import nuvio.composeapp.generated.resources.livetv_reminder_set
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
 
@@ -331,6 +336,9 @@ private fun ProgramDetailsDialog(
     }
     val schedules by remember { LiveTvRecordingScheduler.start(); LiveTvRecordingScheduler.schedules }.collectAsStateWithLifecycle()
     val scheduled = remember(schedules, program) { LiveTvRecordingScheduler.isScheduled(channel.key, program) }
+    val user by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val reminded = remember(user.reminders, program) { user.reminders.any { it.channelKey == channel.key && it.startMs == program.startMs } }
+    val upcoming = program.startMs > now
     // Record: a show still to come or on now; a past show too when the channel keeps it in catch-up.
     val recordable = !LiveTvRepository.isPlaceholderTitle(program.title) && (program.stopMs > now || LiveTvCatchup.isReplayable(channel, program, now))
     DialogSurface(onDismissRequest = onDismiss, title = full.title) {
@@ -339,9 +347,19 @@ private fun ProgramDetailsDialog(
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
-        if (recordable) {
-            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                Chip(
+        if (recordable || upcoming) {
+            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                if (upcoming) {
+                    Chip(
+                        label = stringResource(if (reminded) Res.string.livetv_reminder_set else Res.string.livetv_remind_me),
+                        selected = reminded,
+                        onClick = {
+                            LiveTvReminders.start()
+                            LiveTvReminders.toggle(Reminder(channel.key, channel.name, full.title, program.startMs))
+                        },
+                    )
+                }
+                if (recordable) Chip(
                     label = stringResource(if (scheduled) Res.string.livetv_rec_cancel else Res.string.livetv_rec_record),
                     selected = scheduled,
                     onClick = {
@@ -351,7 +369,7 @@ private fun ProgramDetailsDialog(
                     },
                 )
                 val series = LiveTvRecordingScheduler.seriesFor(channel.key, program.title)
-                Chip(
+                if (recordable) Chip(
                     label = stringResource(Res.string.livetv_rec_series),
                     selected = series != null,
                     onClick = {

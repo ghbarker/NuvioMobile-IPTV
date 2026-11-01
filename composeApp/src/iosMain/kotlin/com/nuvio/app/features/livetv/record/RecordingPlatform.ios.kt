@@ -24,5 +24,7 @@ internal actual object RecordingPlatform {
     actual fun requestExactAlarms() {}
     actual fun notificationsAllowed(): Boolean = false
     actual fun notify(id: String, title: String, text: String) {}
+    actual fun notifyReminder(id: String, title: String, text: String, openUrl: String?, important: Boolean) {}
+    actual fun cancelNotification(id: String) {}
     actual fun online(): Boolean = true
 }

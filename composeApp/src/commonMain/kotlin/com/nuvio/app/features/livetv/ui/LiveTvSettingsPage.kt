@@ -11,11 +11,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +49,15 @@ import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.record.RecordingRules
+import com.nuvio.app.features.livetv.sports.SportsRepository
+import com.nuvio.app.features.livetv.parental.ParentalControls
+import com.nuvio.app.features.livetv.ondemand.VodCategory
+import com.nuvio.app.features.livetv.ondemand.VodKind
+import com.nuvio.app.features.livetv.model.ChannelGroup
+import androidx.compose.runtime.produceState
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -145,6 +156,44 @@ import nuvio.composeapp.generated.resources.livetv_section_guides
 import nuvio.composeapp.generated.resources.livetv_section_playlists
 import nuvio.composeapp.generated.resources.livetv_section_watching
 import nuvio.composeapp.generated.resources.livetv_show_tab
+import nuvio.composeapp.generated.resources.livetv_sports
+import nuvio.composeapp.generated.resources.livetv_parental
+import nuvio.composeapp.generated.resources.livetv_section_reminders
+import nuvio.composeapp.generated.resources.livetv_reminders_list
+import nuvio.composeapp.generated.resources.livetv_reminders_list_description
+import nuvio.composeapp.generated.resources.livetv_reminders_none
+import nuvio.composeapp.generated.resources.livetv_reminder_lead
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_description
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_minutes
+import com.nuvio.app.features.livetv.reminders.LiveTvReminders
+import androidx.compose.material.icons.filled.Notifications
+import nuvio.composeapp.generated.resources.livetv_parental_pin
+import nuvio.composeapp.generated.resources.livetv_parental_pin_set
+import nuvio.composeapp.generated.resources.livetv_parental_pin_not_set
+import nuvio.composeapp.generated.resources.livetv_parental_pin_description
+import nuvio.composeapp.generated.resources.livetv_parental_set_pin
+import nuvio.composeapp.generated.resources.livetv_parental_change_pin
+import nuvio.composeapp.generated.resources.livetv_parental_remove_pin
+import nuvio.composeapp.generated.resources.livetv_parental_new_pin
+import nuvio.composeapp.generated.resources.livetv_parental_current_pin
+import nuvio.composeapp.generated.resources.livetv_parental_lock_adult
+import nuvio.composeapp.generated.resources.livetv_parental_lock_adult_description
+import nuvio.composeapp.generated.resources.livetv_parental_locked_groups
+import nuvio.composeapp.generated.resources.livetv_parental_locked_groups_description
+import nuvio.composeapp.generated.resources.livetv_parental_locked_count
+import nuvio.composeapp.generated.resources.livetv_parental_channel_groups
+import nuvio.composeapp.generated.resources.livetv_parental_vod_groups
+import nuvio.composeapp.generated.resources.action_close
+import nuvio.composeapp.generated.resources.action_save
+import nuvio.composeapp.generated.resources.livetv_sports_show
+import nuvio.composeapp.generated.resources.livetv_sports_show_description
+import nuvio.composeapp.generated.resources.livetv_sports_hide_scores
+import nuvio.composeapp.generated.resources.livetv_sports_hide_scores_description
+import nuvio.composeapp.generated.resources.livetv_sports_scoring_alerts
+import nuvio.composeapp.generated.resources.livetv_sports_scoring_alerts_description
+import nuvio.composeapp.generated.resources.livetv_sports_score_chip
+import nuvio.composeapp.generated.resources.livetv_sports_score_chip_description
 import nuvio.composeapp.generated.resources.livetv_show_tab_description
 import nuvio.composeapp.generated.resources.livetv_stream_format
 import nuvio.composeapp.generated.resources.livetv_stream_format_description
@@ -162,6 +211,7 @@ private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
 private val EPG_OFFSETS = (-24..24).map { it * 30 }
 private val PADDING_MINUTES = listOf(0, 1, 2, 3, 5, 10, 15, 30)
 private val KEEP_COUNTS = listOf(0, 1, 2, 3, 5, 10, 20)
+private val REMINDER_LEADS = listOf(0, 1, 2, 5, 10, 15, 30)
 
 /** "+1 h", "−1 h 30 min" or [none] for 0. */
 internal fun offsetLabel(min: Int, none: String): String {
@@ -198,6 +248,14 @@ private sealed interface LiveDialog {
     data object RecordSpaceRule : LiveDialog
     data object ConfirmRestore : LiveDialog
     data object ConfirmSignOut : LiveDialog
+    data object ParentalMenu : LiveDialog
+    data object ParentalSetPin : LiveDialog
+    /** Asks the current PIN, then [then]. */
+    data class ParentalAskPin(val then: LiveDialog?) : LiveDialog
+    data object ParentalRemovePin : LiveDialog
+    data object ParentalGroups : LiveDialog
+    data object Reminders : LiveDialog
+    data object ReminderLead : LiveDialog
 }
 
 /** The Live TV page in Settings: playlists, guides, watching options, Google Drive backup. */
@@ -217,6 +275,9 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val status by remember { LiveTvRepository.ensureLoaded(); LiveTvRepository.status }.collectAsStateWithLifecycle()
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
+    val sports by SportsRepository.settings.collectAsStateWithLifecycle()
+    val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -410,6 +471,95 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.vodMergeDuplicates,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(vodMergeDuplicates = on) } },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_sports), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show),
+                    description = stringResource(Res.string.livetv_sports_show_description),
+                    checked = sports.showInSidebar,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showInSidebar = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_hide_scores),
+                    description = stringResource(Res.string.livetv_sports_hide_scores_description),
+                    checked = sports.hideScores,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(hideScores = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_score_chip),
+                    description = stringResource(Res.string.livetv_sports_score_chip_description),
+                    checked = sports.scoreOnInfoBar,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(scoreOnInfoBar = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_scoring_alerts),
+                    description = stringResource(Res.string.livetv_sports_scoring_alerts_description),
+                    checked = sports.scoringAlerts,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(scoringAlerts = on) } },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_parental), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                val pinSet = ParentalControls.enabled(settings)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_parental_pin),
+                    description = stringResource(Res.string.livetv_parental_pin_description),
+                    icon = Icons.Filled.Lock,
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(stringResource(if (pinSet) Res.string.livetv_parental_pin_set else Res.string.livetv_parental_pin_not_set)) },
+                    onClick = { dialog = if (pinSet) LiveDialog.ParentalMenu else LiveDialog.ParentalSetPin },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_parental_lock_adult),
+                    description = stringResource(Res.string.livetv_parental_lock_adult_description),
+                    checked = settings.lockAdultContent,
+                    enabled = pinSet,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(lockAdultContent = on) }; ParentalControls.relock() },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_parental_locked_groups),
+                    description = stringResource(Res.string.livetv_parental_locked_groups_description),
+                    isTablet = isTablet,
+                    enabled = pinSet,
+                    trailingContent = { ValueLabel(stringResource(Res.string.livetv_parental_locked_count, userState.lockedGroups.size)) },
+                    onClick = { dialog = LiveDialog.ParentalAskPin(LiveDialog.ParentalGroups) },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_reminders), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_reminders_list),
+                    description = stringResource(Res.string.livetv_reminders_list_description),
+                    icon = Icons.Filled.Notifications,
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(userState.reminders.size.toString()) },
+                    onClick = { dialog = LiveDialog.Reminders },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_reminder_lead),
+                    description = stringResource(Res.string.livetv_reminder_lead_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(leadLabel(reminderLead)) },
+                    onClick = { dialog = LiveDialog.ReminderLead },
                 )
             }
         }
@@ -682,6 +832,53 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             confirm = stringResource(Res.string.livetv_drive_sign_out),
             onDismiss = close,
         ) { LiveTvDriveSync.disconnect() }
+        LiveDialog.ParentalMenu -> ActionsDialog(
+            title = stringResource(Res.string.livetv_parental_pin),
+            subtitle = stringResource(Res.string.livetv_parental_pin_set),
+            onDismiss = close,
+            actions = listOf(
+                stringResource(Res.string.livetv_parental_change_pin) to { dialog = LiveDialog.ParentalAskPin(LiveDialog.ParentalSetPin) },
+                stringResource(Res.string.livetv_parental_remove_pin) to { dialog = LiveDialog.ParentalAskPin(LiveDialog.ParentalRemovePin) },
+            ),
+        )
+        is LiveDialog.ParentalAskPin -> ParentalPinDialog(
+            title = stringResource(Res.string.livetv_parental_current_pin),
+            // A right PIN moves on to the next step; only a cancel closes everything.
+            onDismiss = { if (dialog is LiveDialog.ParentalAskPin) dialog = null },
+            confirmLabel = stringResource(Res.string.action_save),
+            onPin = { pin -> ParentalControls.checkPin(pin, settings).also { ok -> if (ok) dialog = d.then } },
+        )
+        LiveDialog.ParentalSetPin -> ParentalPinDialog(
+            title = stringResource(Res.string.livetv_parental_new_pin),
+            message = stringResource(Res.string.livetv_parental_pin_description),
+            onDismiss = close,
+            confirmLabel = stringResource(Res.string.action_save),
+            onPin = { pin -> ParentalControls.setPin(pin); true },
+        )
+        LiveDialog.ParentalRemovePin -> LaunchedEffect(Unit) { ParentalControls.setPin(""); close() }
+        LiveDialog.ParentalGroups -> LockedGroupsDialog(onDismiss = close)
+        LiveDialog.Reminders -> DialogSurface(onDismissRequest = close, title = stringResource(Res.string.livetv_reminders_list), message = stringResource(Res.string.livetv_reminders_list_description)) {
+            if (userState.reminders.isEmpty()) {
+                Text(stringResource(Res.string.livetv_reminders_none), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted)
+            }
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+                items(userState.reminders, key = { it.channelKey + "|" + it.startMs }) { r ->
+                    DialogOption(
+                        text = r.title,
+                        description = r.channelName + " · " + formatLocalDateTime(r.startMs),
+                        selected = true,
+                        onClick = { LiveTvPreferences.removeReminder(r.channelKey, r.startMs) },
+                    )
+                }
+            }
+            DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = close) }
+        }
+        LiveDialog.ReminderLead -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_reminder_lead),
+            options = REMINDER_LEADS.map { it to leadLabel(it) },
+            selected = reminderLead,
+            onDismiss = close,
+        ) { v -> LiveTvPreferences.setReminderLeadMinutes(v) }
     }
 }
 
@@ -691,6 +888,9 @@ private fun ValueLabel(text: String) {
 }
 
 private fun minutesLabel(m: Int) = if (m == 0) "None" else if (m == 1) "1 minute" else "$m minutes"
+
+@Composable
+private fun leadLabel(m: Int): String = if (m == 0) stringResource(Res.string.livetv_reminder_lead_at_start) else stringResource(Res.string.livetv_reminder_lead_minutes, m)
 
 private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> "Auto" }
 
@@ -868,5 +1068,33 @@ private fun DriveSignInDialog(prompt: SignInPrompt, onCancel: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         DialogButtons { DialogButton(text = stringResource(Res.string.action_cancel), onClick = onCancel) }
+    }
+}
+
+/** Which channel groups and On Demand categories need the PIN. */
+@Composable
+private fun LockedGroupsDialog(onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val state by LiveTvViewState.list.collectAsStateWithLifecycle()
+    val user by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val movies by produceState(emptyList<VodCategory>()) { value = runCatching { OnDemandRepository.categories(VodKind.MOVIE) }.getOrDefault(emptyList()) }
+    val series by produceState(emptyList<VodCategory>()) { value = runCatching { OnDemandRepository.categories(VodKind.SERIES) }.getOrDefault(emptyList()) }
+    val groups = remember(state) { state.sections.map { it.group }.filter { !it.special && it.id != ChannelGroup.ALL } }
+    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_parental_locked_groups), message = stringResource(Res.string.livetv_parental_locked_groups_description)) {
+        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+            item { Text(stringResource(Res.string.livetv_parental_channel_groups), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted) }
+            items(groups, key = { "g:" + it.id }) { g ->
+                val locked = g.id in user.lockedGroups
+                DialogOption(text = g.title, selected = locked, onClick = { LiveTvPreferences.setGroupLocked(g.id, !locked); if (locked) ParentalControls.relock() })
+            }
+            val vod = movies + series
+            if (vod.isNotEmpty()) item { Text(stringResource(Res.string.livetv_parental_vod_groups), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(top = NuvioTokens.Space.s8)) }
+            items(vod, key = { "v:" + it.uid }) { c ->
+                val id = "vod:" + c.uid
+                val locked = id in user.lockedGroups
+                DialogOption(text = c.name, description = if (c.kind == VodKind.MOVIE) "Movies" else "Series", selected = locked, onClick = { LiveTvPreferences.setGroupLocked(id, !locked); if (locked) ParentalControls.relock() })
+            }
+        }
+        DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = onDismiss) }
     }
 }

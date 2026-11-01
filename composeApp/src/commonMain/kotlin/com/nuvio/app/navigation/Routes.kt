@@ -167,6 +167,30 @@ data class LiveTvRecordingsRoute(override val title: String = "") : AppRoute {
 }
 
 @Serializable
+data class LiveTvManageRoute(override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "LiveTv"
+}
+
+@Serializable
+data class LiveTvSportsRoute(override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "LiveTv"
+}
+
+@Serializable
+data class LiveTvSportsGameRoute(val eventId: String, override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "LiveTv"
+}
+
+@Serializable
+data class LiveTvSportsLeagueRoute(val leagueId: String, override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "LiveTv"
+}
+
+@Serializable
 data class LiveTvOnDemandSeeAllRoute(
     val kind: String,
     val categoryUid: String? = null,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -76,6 +78,7 @@ import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.ondemand.OnDemandGroups
 import com.nuvio.app.features.livetv.ondemand.OnDemandPlayback
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.parental.ParentalControls
 import com.nuvio.app.features.livetv.ondemand.VodCategory
 import com.nuvio.app.features.livetv.ondemand.VodItem
 import com.nuvio.app.features.livetv.ondemand.VodKind
@@ -134,9 +137,17 @@ internal fun OnDemandScreen(
     val categories by produceState(emptyList<VodCategory>(), vodKind, version) {
         value = OnDemandRepository.categories(vodKind)
     }
-    val visible = remember(categories, user) { OnDemandGroups.visible(categories, user) }
-    val results by produceState(emptyList<VodItem>(), vodKind, query, version, user.vodHiddenCategories) {
-        value = if (query.isBlank()) emptyList() else OnDemandRepository.search(vodKind, query, user.vodHiddenCategories, merge = settings.vodMergeDuplicates)
+    // Parental controls: locked categories ("vod:<uid>") stay out of every row until unlocked.
+    val unlocked by ParentalControls.unlocked.collectAsStateWithLifecycle()
+    val lockedUids = remember(categories, settings, user.lockedGroups, unlocked) {
+        categories.filter { c -> ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups) }.mapTo(HashSet()) { it.uid }
+    }
+    val hiddenOrLocked = remember(user.vodHiddenCategories, lockedUids) { user.vodHiddenCategories + lockedUids }
+    var unlockCategory by remember { mutableStateOf<VodCategory?>(null) }
+    val visible = remember(categories, user, lockedUids) { OnDemandGroups.visible(categories, user).filter { it.uid !in lockedUids } }
+    val lockedShown = remember(categories, user, lockedUids) { OnDemandGroups.visible(categories, user).filter { it.uid in lockedUids } }
+    val results by produceState(emptyList<VodItem>(), vodKind, query, version, hiddenOrLocked) {
+        value = if (query.isBlank()) emptyList() else OnDemandRepository.search(vodKind, query, hiddenOrLocked, merge = settings.vodMergeDuplicates)
     }
 
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding()) {
@@ -201,7 +212,7 @@ internal fun OnDemandScreen(
                     VodRow(
                         title = stringResource(Res.string.livetv_vod_recently_added),
                         kind = vodKind, category = null, sort = VodSort.RECENTLY_ADDED,
-                        hidden = user.vodHiddenCategories, merge = settings.vodMergeDuplicates, version = version,
+                        hidden = hiddenOrLocked, merge = settings.vodMergeDuplicates, version = version,
                         onSeeAll = { actions.onSeeAll(vodKind, null, it) },
                         onItem = { selected = it },
                     )
@@ -211,15 +222,27 @@ internal fun OnDemandScreen(
                     VodRow(
                         title = c.name,
                         kind = vodKind, category = c, sort = OnDemandGroups.sortFor(c.uid, user, settings),
-                        hidden = user.vodHiddenCategories, merge = settings.vodMergeDuplicates, version = version,
+                        hidden = hiddenOrLocked, merge = settings.vodMergeDuplicates, version = version,
                         onSeeAll = { actions.onSeeAll(vodKind, c.uid, it) },
                         onItem = { selected = it },
                     )
+                }
+                items(lockedShown.size, key = { "locked:" + lockedShown[it].uid }) { i ->
+                    val c = lockedShown[i]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { unlockCategory = c }.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s8),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+                    ) {
+                        Icon(Icons.Filled.Lock, contentDescription = null, tint = tokens.colors.textMuted)
+                        Text(c.name, style = MaterialTheme.typography.titleMedium, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
     }
 
+    unlockCategory?.let { c -> UnlockGroupDialog("vod:${c.uid}", c.name, onDismiss = { unlockCategory = null }) }
     selected?.let { item -> OnDemandTitleSheet(item = item, actions = actions, onDismiss = { selected = null }) }
     if (manageGroups) ManageVodGroupsDialog(kind = vodKind, categories = categories, onDismiss = { manageGroups = false })
 }
@@ -305,6 +328,11 @@ internal fun OnDemandSeeAllScreen(
     val categories by produceState(emptyList<VodCategory>(), kind, version) { value = OnDemandRepository.categories(kind) }
     val category = categories.firstOrNull { it.uid == categoryUid }
     val sort = OnDemandGroups.sortFor(categoryUid, user, settings)
+    // "All" (Recently added) leaves locked categories out too.
+    val unlockedNow by ParentalControls.unlocked.collectAsStateWithLifecycle()
+    val hiddenOrLocked = remember(categories, user, settings, unlockedNow) {
+        user.vodHiddenCategories + categories.filter { c -> ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups) }.map { it.uid }
+    }
     var sortDialog by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<VodItem?>(null) }
     var items by remember { mutableStateOf<List<VodItem>>(emptyList()) }
@@ -314,7 +342,7 @@ internal fun OnDemandSeeAllScreen(
     val gridState = rememberLazyGridState()
 
     // Pages load as the grid nears its end; a new sort or import starts again from the top.
-    LaunchedEffect(kind, categoryUid, sort, version, user.vodHiddenCategories, settings.vodMergeDuplicates, categories.isEmpty()) {
+    LaunchedEffect(kind, categoryUid, sort, version, hiddenOrLocked, settings.vodMergeDuplicates, categories.isEmpty()) {
         if (categoryUid != null && category == null) return@LaunchedEffect
         items = emptyList(); exhausted = false; wanted = PAGE
     }
@@ -322,7 +350,7 @@ internal fun OnDemandSeeAllScreen(
         if (exhausted || loading || items.size >= wanted) return@LaunchedEffect
         if (categoryUid != null && category == null) return@LaunchedEffect
         loading = true
-        val page = OnDemandRepository.items(kind, category, user.vodHiddenCategories, PAGE, items.size, sort, settings.vodMergeDuplicates)
+        val page = OnDemandRepository.items(kind, category, hiddenOrLocked, PAGE, items.size, sort, settings.vodMergeDuplicates)
         items = (items + page).distinctBy { it.uid }
         if (page.size < PAGE) exhausted = true
         loading = false

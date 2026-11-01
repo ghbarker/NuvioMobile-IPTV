@@ -5,10 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import com.nuvio.app.features.livetv.LiveTvAlarms
 import com.nuvio.app.features.livetv.LiveTvPreferencesAndroid
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 
-/** Wakes the app for a scheduled recording, and sets the alarms again after the phone restarts. */
+/** Wakes the app for a scheduled recording or a reminder, and sets the alarms again after the phone restarts. */
 class RecordingAlarmReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_FIRE = "com.nuvio.app.livetv.RECORD"
@@ -23,15 +24,16 @@ class RecordingAlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_FIRE -> {
                 val id = intent.getStringExtra(EXTRA_ID) ?: return
-                // Keep the app awake long enough for the recording service to take over.
+                val recording = !id.startsWith(LiveTvAlarms.SPORTS) && !id.startsWith(LiveTvAlarms.REMINDER)
+                // Keep the app awake long enough for the recording service (or the notification) to take over.
                 val pending = goAsync()
-                LiveTvRecordingService.start(app)
+                if (recording) LiveTvRecordingService.start(app)
                 LiveTvRepository.ensureLoaded(updateCheckDelayMs = 0L)
                 LiveTvRecordingScheduler.start()
-                LiveTvRecordingScheduler.fire(id)
+                LiveTvAlarms.fire(id)
                 Handler(Looper.getMainLooper()).postDelayed({ runCatching { pending.finish() } }, 8_000)
             }
-            else -> LiveTvRecordingScheduler.start() // boot: set the alarms again
+            else -> LiveTvAlarms.rearmAll() // boot: set the alarms again
         }
     }
 }

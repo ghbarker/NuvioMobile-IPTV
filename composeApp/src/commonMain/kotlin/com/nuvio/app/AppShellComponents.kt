@@ -123,6 +123,8 @@ internal data class AppTabActions(
     val onLiveTvReplay: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
     val onLiveTvOnDemandClick: () -> Unit = {},
     val onLiveTvRecordingsClick: () -> Unit = {},
+    val onLiveTvSportsClick: () -> Unit = {},
+    val onLiveTvManageClick: () -> Unit = {},
 )
 
 @Composable
@@ -196,6 +198,8 @@ internal fun AppTabHost(
                     onPlayCatchup = actions.onLiveTvReplay,
                     onOpenOnDemand = actions.onLiveTvOnDemandClick,
                     onOpenRecordings = actions.onLiveTvRecordingsClick,
+                    onOpenSports = actions.onLiveTvSportsClick,
+                    onOpenManage = actions.onLiveTvManageClick,
                 )
             }
 

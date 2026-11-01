@@ -58,4 +58,6 @@ internal object LiveTvDirs {
     const val PLAYLISTS = "playlists"
     const val EPG = "epg"
     const val STATE = "state"
+    /** The Sports hub's saved feeds, tables and channel matches. */
+    const val SPORTS = "sports"
 }

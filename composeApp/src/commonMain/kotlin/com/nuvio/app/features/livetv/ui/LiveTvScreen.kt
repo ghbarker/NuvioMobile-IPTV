@@ -24,13 +24,16 @@ import androidx.compose.material.icons.filled.CalendarViewDay
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
@@ -78,6 +81,9 @@ import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.features.livetv.sports.SportsLive
+import com.nuvio.app.features.livetv.sports.SportsRepository
+import com.nuvio.app.features.livetv.sports.GameState
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -95,6 +101,10 @@ import nuvio.composeapp.generated.resources.livetv_rec_stop
 import nuvio.composeapp.generated.resources.livetv_recordings
 import nuvio.composeapp.generated.resources.livetv_search_hint
 import nuvio.composeapp.generated.resources.livetv_settings
+import nuvio.composeapp.generated.resources.livetv_sports
+import nuvio.composeapp.generated.resources.livetv_manage_menu
+import com.nuvio.app.core.ui.Menu
+import com.nuvio.app.core.ui.MenuItem
 import nuvio.composeapp.generated.resources.livetv_title
 import nuvio.composeapp.generated.resources.livetv_update_now
 import org.jetbrains.compose.resources.stringResource
@@ -117,6 +127,10 @@ fun LiveTvScreen(
     onOpenOnDemand: () -> Unit = {},
     /** Opens Recordings. */
     onOpenRecordings: () -> Unit = {},
+    /** Opens the Sports hub. */
+    onOpenSports: () -> Unit = {},
+    /** Opens Manage (reorder and show or hide groups and channels). */
+    onOpenManage: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
@@ -128,6 +142,8 @@ fun LiveTvScreen(
     val seriesRules by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
     val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty()
     var manualRecording by remember { mutableStateOf<Pair<LiveChannel, Boolean>?>(null) }
+    val sportsSettings by remember { SportsRepository.start(); SportsRepository.settings }.collectAsStateWithLifecycle()
+    val sportsOn = sportsSettings.showInSidebar
     val state by remember {
         LiveTvRepository.ensureLoaded()
         LiveTvViewState.list
@@ -144,6 +160,8 @@ fun LiveTvScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
+    var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
+    var overflow by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(scrollToTopRequests) {
@@ -184,6 +202,11 @@ fun LiveTvScreen(
                                     Icon(Icons.Filled.Movie, contentDescription = stringResource(Res.string.livetv_on_demand), tint = tokens.colors.textPrimary)
                                 }
                             }
+                            if (sportsOn) {
+                                IconButton(onClick = onOpenSports) {
+                                    Icon(Icons.Filled.SportsSoccer, contentDescription = stringResource(Res.string.livetv_sports), tint = tokens.colors.textPrimary)
+                                }
+                            }
                             if (showRecordings) {
                                 IconButton(onClick = onOpenRecordings) {
                                     Icon(Icons.Filled.FiberManualRecord, contentDescription = stringResource(Res.string.livetv_recordings), tint = if (recordings.any { it.isRecording }) tokens.colors.danger else tokens.colors.textPrimary)
@@ -191,6 +214,15 @@ fun LiveTvScreen(
                             }
                             IconButton(onClick = onOpenSettings) {
                                 Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_settings), tint = tokens.colors.textPrimary)
+                            }
+                            if (state.hasSources) {
+                                IconButton(onClick = { overflow = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = null, tint = tokens.colors.textPrimary)
+                                }
+                                Menu(expanded = overflow, onDismissRequest = { overflow = false }) {
+                                    MenuItem(text = stringResource(Res.string.livetv_manage_menu), onClick = { overflow = false; onOpenManage() })
+                                    MenuItem(text = stringResource(Res.string.livetv_update_now), onClick = { overflow = false; LiveTvRepository.refreshAll(force = true) })
+                                }
                             }
                         },
                     )
@@ -252,7 +284,8 @@ fun LiveTvScreen(
                     val isCollapsed = id in collapsed.value
                     item(key = "g:$id") {
                         GroupHeader(section.group, isCollapsed) {
-                            collapsed.value = if (isCollapsed) collapsed.value - id else collapsed.value + id
+                            if (section.group.locked) unlockGroup = section.group
+                            else collapsed.value = if (isCollapsed) collapsed.value - id else collapsed.value + id
                         }
                     }
                     if (!isCollapsed) {
@@ -293,6 +326,7 @@ fun LiveTvScreen(
     manualRecording?.let { (channel, scheduleOnly) ->
         ManualRecordingDialog(channel = channel, scheduleOnly = scheduleOnly, onDismiss = { manualRecording = null })
     }
+    unlockGroup?.let { g -> UnlockGroupDialog(g.id, g.title, onDismiss = { unlockGroup = null }) }
 }
 
 @Composable
@@ -326,6 +360,9 @@ private fun GroupHeader(group: ChannelGroup, collapsed: Boolean, onToggle: () ->
         if (group.id == ChannelGroup.FAVORITES) {
             Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(NuvioTokens.Icon.md))
         }
+        if (group.locked) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(NuvioTokens.Icon.md))
+        }
         Text(
             text = group.title,
             style = MaterialTheme.typography.titleMedium,
@@ -335,12 +372,14 @@ private fun GroupHeader(group: ChannelGroup, collapsed: Boolean, onToggle: () ->
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(text = group.count.toString(), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
-        Icon(
-            imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-            contentDescription = null,
-            tint = tokens.colors.textMuted,
-        )
+        if (!group.locked) {
+            Text(text = group.count.toString(), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
+            Icon(
+                imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                contentDescription = null,
+                tint = tokens.colors.textMuted,
+            )
+        }
     }
 }
 
@@ -357,6 +396,9 @@ internal fun ChannelRow(
     val tokens = MaterialTheme.nuvio
     val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val current = nowNext?.now
+    val liveGames by SportsLive.byChannel.collectAsStateWithLifecycle()
+    val sportsSettings by SportsRepository.settings.collectAsStateWithLifecycle()
+    val game = liveGames[channel.key]?.takeIf { it.state == GameState.LIVE && !sportsSettings.hideScores && sportsSettings.scoreOnInfoBar }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -385,6 +427,18 @@ internal fun ChannelRow(
                 if (isFavorite) {
                     Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(NuvioTokens.Icon.sm))
                 }
+            }
+            if (game != null) {
+                // The live score of the game this channel is showing (Sports): "DET 21 – 17 CHI · 3rd 4:12".
+                val sides = game.ordered(com.nuvio.app.features.livetv.sports.SportsCatalog.league(game.leagueId)?.sport ?: com.nuvio.app.features.livetv.sports.Sport.OTHER)
+                Text(
+                    text = sides.joinToString("  –  ") { (it.team.abbr.ifBlank { it.team.name }) + " " + (it.score ?: "") } + (game.status?.let { "  ·  $it" } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.LiveNowLine,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (current != null) {
                 Text(

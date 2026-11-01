@@ -39,6 +39,13 @@ internal expect object EpgStore {
     /** One show's full details (description, cast…). */
     fun program(ch: String, startMs: Long): EpgProgram?
 
+    /**
+     * Shows starting in [fromMs, toMs) and ending after [minStopMs] whose title (or, with
+     * [inDescription], description) contains any of [words] (case-insensitive, 3+ letters). Up to
+     * [limit] rows, with title, description and category only. For the Sports hub's channel search.
+     */
+    fun findByWords(fromMs: Long, toMs: Long, minStopMs: Long, words: Collection<String>, inDescription: Boolean = true, limit: Int = 4_000): List<Pair<String, EpgProgram>>
+
     /** What's on now and next for each of [channels] at [nowMs]. */
     fun nowNext(channels: Collection<String>, nowMs: Long): Map<String, NowNext>
 

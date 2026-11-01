@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit
 
 internal actual object RecordingPlatform {
     internal const val CHANNEL_ID = "livetv_recordings"
+    internal const val REMINDER_CHANNEL_ID = "livetv_reminders"
     private var appContext: Context? = null
 
     fun initialize(context: Context) {
@@ -189,13 +190,55 @@ internal actual object RecordingPlatform {
         val context = appContext ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Live TV recordings", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Recordings starting, finishing or failing"
-                setShowBadge(false)
-            }
-        )
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Live TV recordings", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Recordings starting, finishing or failing"
+                    setShowBadge(false)
+                }
+            )
+        }
+        if (manager.getNotificationChannel(REMINDER_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(REMINDER_CHANNEL_ID, "Live TV reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Shows and games you asked to be reminded about, and scores for teams you follow"
+                    setShowBadge(true)
+                }
+            )
+        }
+    }
+
+    private fun notificationId(id: String): Int = 7400 + (id.hashCode() and 0xffff)
+
+    actual fun notifyReminder(id: String, title: String, text: String, openUrl: String?, important: Boolean) {
+        val context = appContext ?: return
+        if (!notificationsAllowed()) return
+        ensureChannel()
+        val launchIntent = Intent().apply {
+            component = AppIconPlatform.currentLauncherComponent(context)
+            action = if (openUrl != null) Intent.ACTION_VIEW else Intent.ACTION_MAIN
+            if (openUrl != null) data = Uri.parse(openUrl)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val contentIntent = PendingIntent.getActivity(context, id.hashCode(), launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setPriority(if (important) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(if (important) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_EVENT)
+            .setDefaults(if (important) NotificationCompat.DEFAULT_ALL else 0)
+            .setContentIntent(contentIntent)
+            .apply { if (openUrl != null) addAction(0, "Open", contentIntent) }
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(notificationId(id), notification) }
+    }
+
+    actual fun cancelNotification(id: String) {
+        val context = appContext ?: return
+        runCatching { NotificationManagerCompat.from(context).cancel(notificationId(id)) }
     }
 
     actual fun notify(id: String, title: String, text: String) {
@@ -218,7 +261,7 @@ internal actual object RecordingPlatform {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(contentIntent)
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(7400 + (id.hashCode() and 0xffff), notification) }
+        runCatching { NotificationManagerCompat.from(context).notify(notificationId(id), notification) }
     }
 
     actual fun online(): Boolean = runCatching {
