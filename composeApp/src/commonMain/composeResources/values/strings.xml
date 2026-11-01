@@ -2770,6 +2770,18 @@
     <string name="livetv_parental_locked_count">%1$d locked</string>
     <string name="livetv_parental_channel_groups">Channel groups</string>
     <string name="livetv_parental_vod_groups">On Demand categories</string>
+    <!-- Live TV: reminders -->
+    <string name="livetv_remind_me">Remind me</string>
+    <string name="livetv_reminder_set">Reminder set</string>
+    <string name="livetv_section_reminders">Reminders</string>
+    <string name="livetv_reminders_list">Your reminders</string>
+    <string name="livetv_reminders_list_description">Shows you asked to be reminded about; tap one to cancel it</string>
+    <string name="livetv_reminders_none">No reminders. Open a show in the guide and tap Remind me.</string>
+    <string name="livetv_reminders_count">%1$d</string>
+    <string name="livetv_reminder_lead">Remind me</string>
+    <string name="livetv_reminder_lead_description">How long before a show starts its notification arrives; Open plays the channel</string>
+    <string name="livetv_reminder_lead_at_start">At the start</string>
+    <string name="livetv_reminder_lead_minutes">%1$d minutes before</string>
     <string name="livetv_channel_gone">That channel isn't in your playlists any more.</string>
     <string name="compose_settings_page_livetv">Live TV</string>
     <string name="compose_settings_root_livetv_description">Playlists, TV guide and channel options</string>

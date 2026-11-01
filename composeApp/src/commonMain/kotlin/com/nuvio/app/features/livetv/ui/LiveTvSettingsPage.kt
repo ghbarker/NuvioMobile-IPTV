@@ -158,6 +158,16 @@ import nuvio.composeapp.generated.resources.livetv_section_watching
 import nuvio.composeapp.generated.resources.livetv_show_tab
 import nuvio.composeapp.generated.resources.livetv_sports
 import nuvio.composeapp.generated.resources.livetv_parental
+import nuvio.composeapp.generated.resources.livetv_section_reminders
+import nuvio.composeapp.generated.resources.livetv_reminders_list
+import nuvio.composeapp.generated.resources.livetv_reminders_list_description
+import nuvio.composeapp.generated.resources.livetv_reminders_none
+import nuvio.composeapp.generated.resources.livetv_reminder_lead
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_description
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_minutes
+import com.nuvio.app.features.livetv.reminders.LiveTvReminders
+import androidx.compose.material.icons.filled.Notifications
 import nuvio.composeapp.generated.resources.livetv_parental_pin
 import nuvio.composeapp.generated.resources.livetv_parental_pin_set
 import nuvio.composeapp.generated.resources.livetv_parental_pin_not_set
@@ -201,6 +211,7 @@ private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
 private val EPG_OFFSETS = (-24..24).map { it * 30 }
 private val PADDING_MINUTES = listOf(0, 1, 2, 3, 5, 10, 15, 30)
 private val KEEP_COUNTS = listOf(0, 1, 2, 3, 5, 10, 20)
+private val REMINDER_LEADS = listOf(0, 1, 2, 5, 10, 15, 30)
 
 /** "+1 h", "−1 h 30 min" or [none] for 0. */
 internal fun offsetLabel(min: Int, none: String): String {
@@ -243,6 +254,8 @@ private sealed interface LiveDialog {
     data class ParentalAskPin(val then: LiveDialog?) : LiveDialog
     data object ParentalRemovePin : LiveDialog
     data object ParentalGroups : LiveDialog
+    data object Reminders : LiveDialog
+    data object ReminderLead : LiveDialog
 }
 
 /** The Live TV page in Settings: playlists, guides, watching options, Google Drive backup. */
@@ -264,6 +277,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     val sports by SportsRepository.settings.collectAsStateWithLifecycle()
     val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -525,6 +539,27 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     enabled = pinSet,
                     trailingContent = { ValueLabel(stringResource(Res.string.livetv_parental_locked_count, userState.lockedGroups.size)) },
                     onClick = { dialog = LiveDialog.ParentalAskPin(LiveDialog.ParentalGroups) },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_reminders), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_reminders_list),
+                    description = stringResource(Res.string.livetv_reminders_list_description),
+                    icon = Icons.Filled.Notifications,
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(userState.reminders.size.toString()) },
+                    onClick = { dialog = LiveDialog.Reminders },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_reminder_lead),
+                    description = stringResource(Res.string.livetv_reminder_lead_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(leadLabel(reminderLead)) },
+                    onClick = { dialog = LiveDialog.ReminderLead },
                 )
             }
         }
@@ -822,6 +857,28 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         )
         LiveDialog.ParentalRemovePin -> LaunchedEffect(Unit) { ParentalControls.setPin(""); close() }
         LiveDialog.ParentalGroups -> LockedGroupsDialog(onDismiss = close)
+        LiveDialog.Reminders -> DialogSurface(onDismissRequest = close, title = stringResource(Res.string.livetv_reminders_list), message = stringResource(Res.string.livetv_reminders_list_description)) {
+            if (userState.reminders.isEmpty()) {
+                Text(stringResource(Res.string.livetv_reminders_none), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted)
+            }
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+                items(userState.reminders, key = { it.channelKey + "|" + it.startMs }) { r ->
+                    DialogOption(
+                        text = r.title,
+                        description = r.channelName + " · " + formatLocalDateTime(r.startMs),
+                        selected = true,
+                        onClick = { LiveTvPreferences.removeReminder(r.channelKey, r.startMs) },
+                    )
+                }
+            }
+            DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = close) }
+        }
+        LiveDialog.ReminderLead -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_reminder_lead),
+            options = REMINDER_LEADS.map { it to leadLabel(it) },
+            selected = reminderLead,
+            onDismiss = close,
+        ) { v -> LiveTvPreferences.setReminderLeadMinutes(v) }
     }
 }
 
@@ -831,6 +888,9 @@ private fun ValueLabel(text: String) {
 }
 
 private fun minutesLabel(m: Int) = if (m == 0) "None" else if (m == 1) "1 minute" else "$m minutes"
+
+@Composable
+private fun leadLabel(m: Int): String = if (m == 0) stringResource(Res.string.livetv_reminder_lead_at_start) else stringResource(Res.string.livetv_reminder_lead_minutes, m)
 
 private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> "Auto" }
 

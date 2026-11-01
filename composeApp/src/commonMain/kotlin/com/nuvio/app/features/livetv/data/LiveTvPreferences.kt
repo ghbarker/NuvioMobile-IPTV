@@ -190,6 +190,8 @@ internal object LiveTvKeys {
     const val launcherRows = "launcher_rows"
     const val lockedGroups = "locked_groups"
     const val reminders = "reminders"
+    /** Phone only (not a TV key): minutes before a show its reminder rings. */
+    const val reminderLead = "reminder_lead_minutes"
     const val channelQuality = "channel_quality"
     const val channelAudio = "channel_audio"
     const val vodHiddenCategories = "vod_hidden_categories"
@@ -1146,6 +1148,12 @@ internal open class LiveTvPreferencesStore {
         )
     }
 
+    /** Minutes before a show its reminder rings (0 = at the start). */
+    val reminderLeadMinutes: StateFlow<Int> = _data.map { it.int(LiveTvKeys.reminderLead) ?: DEFAULT_REMINDER_LEAD }
+        .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, DEFAULT_REMINDER_LEAD)
+
+    fun setReminderLeadMinutes(minutes: Int) = edit { it[LiveTvKeys.reminderLead] = minutes.coerceIn(0, 120) }
+
     /** Drops reminders for shows that started more than [graceMs] ago. */
     fun pruneReminders(now: Long, graceMs: Long = 30 * 60_000L) = edit { p ->
         val cur = LiveTvCodec.decodeReminders(p.str(my(LiveTvKeys.reminders)))
@@ -1361,6 +1369,8 @@ internal open class LiveTvPreferencesStore {
 
 /** The app's Live TV preferences. */
 internal object LiveTvPreferences : LiveTvPreferencesStore()
+
+internal const val DEFAULT_REMINDER_LEAD = 1
 
 /** One profile's hidden channels and groups, and the channels it shows elsewhere anyway. */
 data class HiddenView(val channels: Set<String>, val groups: Set<String>, val kept: Set<String> = emptySet())
