@@ -137,6 +137,7 @@ import com.nuvio.app.features.player.externalPlaybackSession
 import com.nuvio.app.features.player.infusePlaybackCallbacks
 import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
+import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
@@ -374,6 +375,7 @@ internal fun MainAppContent(
     val watchPartyTitle = stringResource(Res.string.party_title)
     val liveTvGuideTitle = stringResource(Res.string.livetv_guide)
     val liveTvSettingsTitle = stringResource(Res.string.compose_settings_page_livetv)
+    val liveTvCatchupUnavailable = stringResource(Res.string.livetv_catchup_unavailable)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -882,6 +884,17 @@ internal fun MainAppContent(
         fun openLiveChannel(channel: LiveChannel, nowTitle: String?) {
             val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
             navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
+        }
+
+        fun openLiveCatchup(channel: LiveChannel, program: EpgProgram) {
+            coroutineScope.launch {
+                val launchId = LiveTvPlayback.prepareCatchup(channel, program, activePlaybackProfileId)
+                if (launchId == null) {
+                    NuvioToastController.show(liveTvCatchupUnavailable)
+                    return@launch
+                }
+                navController.navigate(PlayerRoute(launchId = launchId, title = program.title))
+            }
         }
 
         fun openExternalStreamUrl(url: String): Boolean {
@@ -1484,6 +1497,7 @@ internal fun MainAppContent(
                                 onCollectionsSettingsClick = { navController.navigate(CollectionsRoute(collectionsTitle)) },
                                 onWatchPartySettingsClick = { navController.navigate(PartyRoute(title = watchPartyTitle)) },
                                 onLiveTvPlay = ::openLiveChannel,
+                                onLiveTvReplay = ::openLiveCatchup,
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSettingsClick = {
                                     if (useNativeNavigation && !isTabletLayout) {
@@ -1641,6 +1655,7 @@ internal fun MainAppContent(
                         onBack = onBack,
                         onPlayChannel = ::openLiveChannel,
                         modifier = Modifier.fillMaxSize(),
+                        onPlayCatchup = ::openLiveCatchup,
                     )
                 }
                 entry<DownloadsRoute> { route ->

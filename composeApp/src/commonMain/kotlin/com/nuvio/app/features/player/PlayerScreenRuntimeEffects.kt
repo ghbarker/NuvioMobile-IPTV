@@ -536,6 +536,7 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
             isLoading = playbackSnapshot.isLoading,
             isEnded = playbackSnapshot.isEnded,
         )
+        if (playbackSnapshot.isPlaying) LiveTvPlayback.onPlaying(activeSourceUrl)
         if (playbackSnapshot.isEnded) {
             flushWatchProgress(TrackingScrobbleAction.STOP)
             previousIsPlaying = false
@@ -1002,7 +1003,7 @@ private fun PlayerScreenRuntime.retryLiveTvSourceAfterError(message: String?): B
     val failedUrl = activeSourceUrl
     val fallback = LiveTvPlayback.fallbackFor(failedUrl)
     if (fallback == null) {
-        errorMessage = LiveTvPlayback.describeError(message)
+        errorMessage = LiveTvPlayback.describeError(message, failedUrl)
         controlsVisible = !playerControlsLocked
         return true
     }

@@ -2620,6 +2620,15 @@
     <string name="livetv_updated_at">Updated %1$s</string>
     <string name="livetv_never_updated">Not downloaded yet</string>
     <string name="livetv_switched_to_backup">%1$s isn't working right now. Switched to %2$s.</string>
+    <string name="livetv_replay">Replay</string>
+    <string name="livetv_watch_from_start">Watch from the beginning</string>
+    <string name="livetv_catchup_unavailable">This show can't be replayed right now</string>
+    <string name="livetv_section_catchup">Catch-up</string>
+    <string name="livetv_catchup_prefer_hls">Prefer HLS for catch-up</string>
+    <string name="livetv_catchup_prefer_hls_description">Asks Xtream providers for replays as HLS (m3u8) first, so the seek bar works. Falls back to TS if the provider doesn't offer it.</string>
+    <string name="livetv_catchup_shift">Catch-up time shift</string>
+    <string name="livetv_catchup_shift_description">If replays start the show before (or after) the one you picked, move the time asked for by that much. Example: it plays the show an hour earlier, set +1 h.</string>
+    <string name="livetv_catchup_shift_none">None</string>
     <string name="compose_settings_page_livetv">Live TV</string>
     <string name="compose_settings_root_livetv_description">Playlists, TV guide and channel options</string>
 </resources>

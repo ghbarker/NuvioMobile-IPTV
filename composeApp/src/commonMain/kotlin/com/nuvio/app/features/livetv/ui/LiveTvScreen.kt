@@ -68,7 +68,9 @@ import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.NowNext
 import com.nuvio.app.features.livetv.model.ChannelGroup
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -96,6 +98,8 @@ fun LiveTvScreen(
     onPlayChannel: (LiveChannel, nowTitle: String?) -> Unit,
     onOpenGuide: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** Replay the show on now from its beginning (catch-up). */
+    onPlayCatchup: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
@@ -236,6 +240,9 @@ fun LiveTvScreen(
             customGroups = state.customGroups,
             onDismiss = { sheetChannel = null },
             onPlay = { onPlayChannel(channel, nowNext[channel.key]?.now?.title) },
+            onWatchFromStart = nowNext[channel.key]?.now
+                ?.takeIf { LiveTvCatchup.canWatchFromStart(channel, it, now) }
+                ?.let { program -> { onPlayCatchup(channel, program) } },
         )
     }
 }

@@ -3,11 +3,14 @@ package com.nuvio.app.features.livetv.player
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.XtreamClient
+import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One stream the player is told to open: the link, its headers and what kind of stream it is. */
 internal data class LivePlayRequest(
@@ -52,6 +55,20 @@ internal object LiveTvPlayback {
     /** Channels by their "backup name", so a failed channel's stand-ins are found quickly. */
     private var backupIndex: Map<String, List<LiveChannel>> = emptyMap()
     private var backupIndexFor: List<LiveChannel> = emptyList()
+
+    /** A catch-up replay the player was handed: the show, and the other links still to try. */
+    private class CatchupContext(val channel: LiveChannel, val program: EpgProgram, val remaining: ArrayDeque<String>)
+
+    /** The catch-up replay behind each source URL handed to the player (fallback links included). */
+    private val catchups = HashMap<String, CatchupContext>()
+
+    /** TS catch-up links being tried because the HLS one failed: URL -> playlist id. */
+    private val hlsFailedOn = HashMap<String, String>()
+
+    /** Playlists whose server time zone has been asked for (once per run). */
+    private val zoneAsked = HashSet<String>()
+
+    private val xtream: XtreamClient by lazy { XtreamClient() }
 
     /** The request for a channel, with its HLS→TS memory applied. */
     fun requestFor(channel: LiveChannel): LivePlayRequest {
@@ -116,11 +133,99 @@ internal object LiveTvPlayback {
     /** Whether this provider id is Live TV's (the player asks before trying a fallback). */
     fun owns(providerAddonId: String?): Boolean = providerAddonId == PROVIDER_ID
 
+    // ---------------------------------------------------------------- catch-up
+
     /**
-     * What to play after [failedUrl] failed: the TS link for an HLS one, then a backup channel,
-     * or null when nothing is left (the player shows the error).
+     * Puts a catch-up replay of [program] on [channel] in the launch store (from [offsetMs] into
+     * the show) and returns its id for a PlayerRoute, or null when the show can't be replayed.
+     * An Xtream server whose time zone isn't known yet is asked for it first (once, a few
+     * seconds at most), so the replay starts at the right time.
+     */
+    suspend fun prepareCatchup(channel: LiveChannel, program: EpgProgram, profileId: Int, offsetMs: Long = 0L): Long? {
+        val prefs = LiveTvPreferences
+        val stored = prefs.currentPlaylists().firstOrNull { it.id == channel.sourceId }
+        val askZone = stored != null && stored.serverTimezone.isBlank() && XtreamClient.xtreamLink.containsMatchIn(channel.url) &&
+            synchronized(lock) { zoneAsked.add(channel.sourceId) }
+        var playlist = stored
+        if (askZone && stored != null) {
+            val userAgent = stored.userAgent
+            val tz = runCatching { withTimeoutOrNull(4_000) { xtream.serverTimezoneFor(channel.url, userAgent) } }.getOrNull()
+            if (tz != null) {
+                prefs.updatePlaylists { l -> l.map { if (it.id == channel.sourceId) it.copy(serverTimezone = tz) else it } }
+                playlist = stored.copy(serverTimezone = tz)
+            }
+        }
+        val now = LiveTvClock.nowMs()
+        val plan = LiveTvCatchup.plan(channel, program, prefs.currentSettings(), playlist, now, offsetMs) ?: return null
+        val req = request(channel, plan.url)
+        synchronized(lock) {
+            backupTried.clear()
+            playing[req.url] = channel
+            catchups[req.url] = CatchupContext(channel, program, ArrayDeque(plan.fallbacks))
+        }
+        prefs.recordWatched(channel.key)
+        val launch = PlayerLaunch(
+            profileId = profileId,
+            title = program.title,
+            sourceUrl = req.url,
+            sourceHeaders = req.headers,
+            streamType = req.streamType,
+            logo = channel.logo,
+            poster = program.icon ?: channel.logo,
+            streamTitle = program.title,
+            streamSubtitle = channel.name,
+            pauseDescription = program.description,
+            providerName = channel.sourceName,
+            providerAddonId = PROVIDER_ID,
+            contentType = CONTENT_TYPE,
+            videoId = channel.key,
+            parentMetaId = channel.key,
+            parentMetaType = CONTENT_TYPE,
+        )
+        return PlayerLaunchStore.put(launch)
+    }
+
+    /**
+     * The player reports what it's playing: a catch-up that plays as TS after its HLS link failed
+     * means this provider has no HLS replays (TS is asked for straight away for a week); one
+     * playing as HLS means it does, so a note from before is cleared.
+     */
+    fun onPlaying(url: String?) {
+        if (url == null) return
+        val ctx = synchronized(lock) { catchups[url] } ?: return
+        val sourceId = ctx.channel.sourceId
+        if (LiveTvCatchup.isTsTimeshift(url)) {
+            val failedHls = synchronized(lock) { hlsFailedOn.remove(url) } != null
+            if (failedHls) {
+                val now = LiveTvClock.nowMs()
+                LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == sourceId) it.copy(catchupNoHlsSince = now) else it } }
+            }
+        } else if (LiveTvCatchup.isHlsTimeshift(url)) {
+            if (LiveTvPreferences.currentPlaylists().any { it.id == sourceId && it.catchupNoHlsSince > 0L }) {
+                LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == sourceId) it.copy(catchupNoHlsSince = 0L) else it } }
+            }
+        }
+    }
+
+    /** The next form of a catch-up request to try after [failedUrl], or null when none is left. */
+    private fun catchupFallback(failedUrl: String, ctx: CatchupContext): LiveFallback? {
+        val next = synchronized(lock) { ctx.remaining.removeFirstOrNull() } ?: return null
+        val req = request(ctx.channel, next)
+        synchronized(lock) {
+            playing[req.url] = ctx.channel
+            catchups[req.url] = ctx
+            if (LiveTvCatchup.isHlsTimeshift(failedUrl) && LiveTvCatchup.isTsTimeshift(req.url)) hlsFailedOn[req.url] = ctx.channel.sourceId
+        }
+        return LiveFallback(ctx.channel, req)
+    }
+
+    /**
+     * What to play after [failedUrl] failed: for a catch-up replay, the next form of the same
+     * request; for a live channel, the TS link for an HLS one, then a backup channel; or null
+     * when nothing is left (the player shows the error).
      */
     fun fallbackFor(failedUrl: String): LiveFallback? {
+        synchronized(lock) { catchups[failedUrl] }?.let { return catchupFallback(failedUrl, it) }
         val channel = synchronized(lock) { playing[failedUrl] } ?: return null
         // 1. Xtream HLS that won't play: the same channel as TS, once.
         val ts = synchronized(lock) {
@@ -170,10 +275,12 @@ internal object LiveTvPlayback {
     }
 
     /** A plain-English reason for the player's error text, the TV app's wording where it fits. */
-    fun describeError(message: String?): String {
+    fun describeError(message: String?, url: String? = null): String {
         val m = message.orEmpty()
         val code = Regex("""\b(4\d\d|5\d\d|884)\b""").find(m)?.value?.toIntOrNull()
+        val catchup = url != null && synchronized(lock) { catchups.containsKey(url) }
         return when {
+            catchup -> "This show couldn't be replayed. The provider may not have it in its catch-up" + (code?.let { " (HTTP $it)" } ?: "")
             code == 401 || code == 403 -> "Provider refused the stream (HTTP $code): account limit, expired, or blocked"
             code == 404 -> "Stream not found (HTTP 404). Try another stream format in the playlist's settings"
             code == 429 || code == 456 || code == 458 || code == 509 -> "Too many connections on this account (HTTP $code)"

@@ -62,6 +62,12 @@ import nuvio.composeapp.generated.resources.livetv_add_xtream
 import nuvio.composeapp.generated.resources.livetv_add_xtream_description
 import nuvio.composeapp.generated.resources.livetv_backup_now
 import nuvio.composeapp.generated.resources.livetv_backup_now_description
+import nuvio.composeapp.generated.resources.livetv_catchup_prefer_hls
+import nuvio.composeapp.generated.resources.livetv_catchup_prefer_hls_description
+import nuvio.composeapp.generated.resources.livetv_catchup_shift
+import nuvio.composeapp.generated.resources.livetv_catchup_shift_description
+import nuvio.composeapp.generated.resources.livetv_catchup_shift_none
+import nuvio.composeapp.generated.resources.livetv_section_catchup
 import nuvio.composeapp.generated.resources.livetv_days_ahead
 import nuvio.composeapp.generated.resources.livetv_days_ahead_description
 import nuvio.composeapp.generated.resources.livetv_delete_source_message
@@ -115,6 +121,16 @@ import org.jetbrains.compose.resources.stringResource
 
 private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
+/** Time shifts in minutes, half an hour apart, a day either way (the TV app's choices). */
+private val EPG_OFFSETS = (-24..24).map { it * 30 }
+
+/** "+1 h", "−1 h 30 min" or [none] for 0. */
+internal fun offsetLabel(min: Int, none: String): String {
+    if (min == 0) return none
+    val sign = if (min > 0) "+" else "−"
+    val a = kotlin.math.abs(min)
+    return if (a % 60 == 0) "$sign${a / 60} h" else "$sign${a / 60} h ${a % 60} min"
+}
 
 internal fun hoursLabel(h: Int): String = when {
     h >= 24 && h % 24 == 0 -> if (h == 24) "1 day" else "${h / 24} days"
@@ -135,6 +151,7 @@ private sealed interface LiveDialog {
     data object EpgRefresh : LiveDialog
     data object FutureDays : LiveDialog
     data object StreamFormat : LiveDialog
+    data object CatchupShift : LiveDialog
     data object ConfirmRestore : LiveDialog
     data object ConfirmSignOut : LiveDialog
 }
@@ -284,6 +301,26 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     enabled = false,
                     isTablet = isTablet,
                     onCheckedChange = {},
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_catchup), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_catchup_prefer_hls),
+                    description = stringResource(Res.string.livetv_catchup_prefer_hls_description),
+                    checked = settings.catchupPreferHls,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(catchupPreferHls = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_catchup_shift),
+                    description = stringResource(Res.string.livetv_catchup_shift_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(offsetLabel(settings.catchupShiftMinutes, stringResource(Res.string.livetv_catchup_shift_none))) },
+                    onClick = { dialog = LiveDialog.CatchupShift },
                 )
             }
         }
@@ -439,6 +476,15 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = close,
         ) { v ->
             playlists.filter { it.isXtream && it.streamFormat != v }.forEach { LiveTvRepository.updatePlaylist(it.copy(streamFormat = v)) }
+        }
+        LiveDialog.CatchupShift -> {
+            val none = stringResource(Res.string.livetv_catchup_shift_none)
+            ChoiceDialog(
+                title = stringResource(Res.string.livetv_catchup_shift),
+                options = EPG_OFFSETS.map { it to offsetLabel(it, none) },
+                selected = settings.catchupShiftMinutes,
+                onDismiss = close,
+            ) { v -> update { it.copy(catchupShiftMinutes = v) } }
         }
         LiveDialog.ConfirmRestore -> ConfirmDialog(
             title = stringResource(Res.string.livetv_restore) + "?",
