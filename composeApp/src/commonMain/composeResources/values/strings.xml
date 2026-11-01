@@ -2749,6 +2749,27 @@
     <string name="livetv_sports_show_description">The Sports hub in the Live TV tab: scores, your teams, and which channels show each game</string>
     <string name="livetv_sports_score_chip">Live scores on channels</string>
     <string name="livetv_sports_score_chip_description">The score of the game a channel is showing, on its row in the channel list</string>
+    <!-- Live TV: parental controls -->
+    <string name="livetv_parental">Parental controls</string>
+    <string name="livetv_parental_pin">Parental PIN</string>
+    <string name="livetv_parental_pin_set">Set</string>
+    <string name="livetv_parental_pin_not_set">Not set</string>
+    <string name="livetv_parental_pin_description">A PIN of 4 digits or more. Locked groups and adult channels ask for it before they open.</string>
+    <string name="livetv_parental_set_pin">Set a PIN</string>
+    <string name="livetv_parental_change_pin">Change PIN</string>
+    <string name="livetv_parental_remove_pin">Remove PIN (turn parental controls off)</string>
+    <string name="livetv_parental_new_pin">New PIN</string>
+    <string name="livetv_parental_current_pin">Enter your PIN</string>
+    <string name="livetv_parental_pin_wrong">Wrong PIN, try again</string>
+    <string name="livetv_parental_unlock">Unlock</string>
+    <string name="livetv_parental_is_locked">is locked. Enter your PIN</string>
+    <string name="livetv_parental_lock_adult">Lock adult content</string>
+    <string name="livetv_parental_lock_adult_description">Groups and categories with adult names lock by themselves, and adult channels stay out of search and Recently watched</string>
+    <string name="livetv_parental_locked_groups">Locked groups</string>
+    <string name="livetv_parental_locked_groups_description">Channel groups and On Demand categories that need the PIN</string>
+    <string name="livetv_parental_locked_count">%1$d locked</string>
+    <string name="livetv_parental_channel_groups">Channel groups</string>
+    <string name="livetv_parental_vod_groups">On Demand categories</string>
     <string name="livetv_channel_gone">That channel isn't in your playlists any more.</string>
     <string name="compose_settings_page_livetv">Live TV</string>
     <string name="compose_settings_root_livetv_description">Playlists, TV guide and channel options</string>

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CalendarViewDay
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Schedule
@@ -153,6 +154,7 @@ fun LiveTvScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
+    var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(scrollToTopRequests) {
@@ -266,7 +268,8 @@ fun LiveTvScreen(
                     val isCollapsed = id in collapsed.value
                     item(key = "g:$id") {
                         GroupHeader(section.group, isCollapsed) {
-                            collapsed.value = if (isCollapsed) collapsed.value - id else collapsed.value + id
+                            if (section.group.locked) unlockGroup = section.group
+                            else collapsed.value = if (isCollapsed) collapsed.value - id else collapsed.value + id
                         }
                     }
                     if (!isCollapsed) {
@@ -307,6 +310,7 @@ fun LiveTvScreen(
     manualRecording?.let { (channel, scheduleOnly) ->
         ManualRecordingDialog(channel = channel, scheduleOnly = scheduleOnly, onDismiss = { manualRecording = null })
     }
+    unlockGroup?.let { g -> UnlockGroupDialog(g.id, g.title, onDismiss = { unlockGroup = null }) }
 }
 
 @Composable
@@ -340,6 +344,9 @@ private fun GroupHeader(group: ChannelGroup, collapsed: Boolean, onToggle: () ->
         if (group.id == ChannelGroup.FAVORITES) {
             Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(NuvioTokens.Icon.md))
         }
+        if (group.locked) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(NuvioTokens.Icon.md))
+        }
         Text(
             text = group.title,
             style = MaterialTheme.typography.titleMedium,
@@ -349,12 +356,14 @@ private fun GroupHeader(group: ChannelGroup, collapsed: Boolean, onToggle: () ->
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(text = group.count.toString(), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
-        Icon(
-            imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-            contentDescription = null,
-            tint = tokens.colors.textMuted,
-        )
+        if (!group.locked) {
+            Text(text = group.count.toString(), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
+            Icon(
+                imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                contentDescription = null,
+                tint = tokens.colors.textMuted,
+            )
+        }
     }
 }
 

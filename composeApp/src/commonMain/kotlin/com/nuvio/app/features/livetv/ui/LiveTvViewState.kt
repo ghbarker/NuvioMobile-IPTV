@@ -8,6 +8,7 @@ import com.nuvio.app.features.livetv.model.CustomGroup
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvSettings
 import com.nuvio.app.features.livetv.model.LiveUserState
+import com.nuvio.app.features.livetv.parental.ParentalControls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,8 @@ data class LiveTvListState(
     val favoriteKeys: Set<String> = emptySet(),
     val customGroups: List<CustomGroup> = emptyList(),
     val hasSources: Boolean = false,
+    /** Groups that need the parental PIN right now (their channels are left out of every list). */
+    val lockedGroupIds: Set<String> = emptySet(),
 )
 
 /**
@@ -46,15 +49,26 @@ internal object LiveTvViewState {
         LiveTvPreferences.userState,
         LiveTvPreferences.settings,
         LiveTvPreferences.playlists,
-    ) { channels, user, s, playlists ->
-        build(channels, user, s, playlists.any { it.liveEnabled })
+        ParentalControls.unlocked,
+    ) { channels, user, s, playlists, unlocked ->
+        build(channels, user, s, playlists.any { it.liveEnabled }, unlocked)
     }.stateIn(scope, SharingStarted.Eagerly, LiveTvListState())
 
-    fun build(channels: List<LiveChannel>, user: LiveUserState, s: LiveTvSettings, hasSources: Boolean): LiveTvListState {
-        val visible = channels.filter { it.key !in user.hiddenChannels && it.groupId !in user.hiddenGroups }
+    fun build(channels: List<LiveChannel>, user: LiveUserState, s: LiveTvSettings, hasSources: Boolean, unlocked: Set<String> = emptySet()): LiveTvListState {
+        val shown = channels.filter { it.key !in user.hiddenChannels && it.groupId !in user.hiddenGroups }
+        // Parental controls: channels in locked groups stay out of every list until unlocked.
+        val parental = ParentalControls.enabled(s)
+        fun locked(id: String, name: String): Boolean =
+            parental && id !in unlocked && (id in user.lockedGroups || (s.lockAdultContent && ParentalControls.isAdult(name)))
+        val lockedIds = HashSet<String>()
+        val lockedTitles = LinkedHashMap<String, String>()
+        shown.distinctBy { it.groupId }.forEach { c -> if (locked(c.groupId, c.group)) { lockedIds += c.groupId; lockedTitles[c.groupId] = c.group } }
+        user.customGroups.forEach { g -> if (g.id !in user.hiddenGroups && locked(g.id, g.name)) { lockedIds += g.id; lockedTitles[g.id] = g.name } }
+        val visible = shown.filter { it.groupId !in lockedIds }
         val byKey = visible.associateBy { it.key }
         val favorites = user.favorites.mapNotNull { byKey[it] }
-        val recent = user.recent.mapNotNull { byKey[it] }
+        // Adult channels never show in Recently watched.
+        val recent = user.recent.mapNotNull { byKey[it] }.filterNot { ParentalControls.isAdultChannel(it) }
 
         fun sorted(list: List<LiveChannel>): List<LiveChannel> = when (s.channelSort) {
             ChannelSort.PLAYLIST -> list
@@ -81,8 +95,15 @@ internal object LiveTvViewState {
         val regular = ArrayList<LiveGroupSection>()
         val custom = user.customGroups.filter { it.id !in user.hiddenGroups }
         custom.forEach { g ->
+            if (g.id in lockedIds) { regular += LiveGroupSection(ChannelGroup(g.id, g.name, 0, locked = true), emptyList()); return@forEach }
             val list = sorted(g.channelKeys.mapNotNull { byKey[it] })
             regular += LiveGroupSection(ChannelGroup(g.id, g.name, list.size), list)
+        }
+        // Locked playlist groups keep their place in the list, with nothing inside until unlocked.
+        val lockedSource = HashMap<String, String>()
+        shown.forEach { c -> if (c.groupId in lockedIds && c.groupId !in lockedSource) lockedSource[c.groupId] = c.sourceId }
+        lockedTitles.forEach { (id, title) ->
+            if (!id.startsWith(ChannelGroup.CUSTOM_PREFIX)) regular += LiveGroupSection(ChannelGroup(id, user.groupNames[id] ?: title, 0, sourceId = lockedSource[id], locked = true), emptyList())
         }
         val playlistGroups = LinkedHashMap<String, Pair<String, ArrayList<LiveChannel>>>()
         visible.forEach { c ->
@@ -118,10 +139,12 @@ internal object LiveTvViewState {
         } else sections
         return LiveTvListState(
             sections = numbered,
-            visible = sorted(visible),
+            // Adult channels stay out of search while adult content is locked.
+            visible = sorted(if (parental && s.lockAdultContent) visible.filterNot { ParentalControls.isAdultChannel(it) } else visible),
             favoriteKeys = user.favorites.toHashSet(),
             customGroups = custom,
             hasSources = hasSources,
+            lockedGroupIds = lockedIds,
         )
     }
 

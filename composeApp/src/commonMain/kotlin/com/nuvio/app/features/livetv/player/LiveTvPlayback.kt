@@ -138,7 +138,8 @@ internal object LiveTvPlayback {
 
     /** Puts the launch in the store and returns its id, for a PlayerRoute. */
     fun prepare(channel: LiveChannel, profileId: Int, nowTitle: String? = null): Long {
-        LiveTvPreferences.recordWatched(channel.key)
+        // Adult channels never go in Recently watched.
+        LiveTvPreferences.recordWatched(channel.key, addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
         return PlayerLaunchStore.put(launchFor(channel, profileId, nowTitle))
     }
 
