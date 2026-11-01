@@ -124,7 +124,7 @@ fun SportsLeagueScreen(
         if (mode == "games" || (league != null && !repo.mayHaveTable(league))) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+                contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
                 verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
                 if (games.isEmpty()) item { Text("No games known for the days ahead.", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(vertical = NuvioTokens.Space.s16)) }
@@ -148,7 +148,7 @@ private fun TableView(table: Standings, view: StandingsView, conference: String?
     val lines = table.playoffLines(view)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s12, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+        contentPadding = PaddingValues(start = NuvioTokens.Space.s12, end = NuvioTokens.Space.s12, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
     ) {
         item(key = "meta") {

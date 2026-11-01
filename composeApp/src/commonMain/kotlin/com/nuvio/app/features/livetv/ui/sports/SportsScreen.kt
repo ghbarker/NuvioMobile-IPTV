@@ -83,7 +83,7 @@ import nuvio.composeapp.generated.resources.livetv_sports_upcoming
 import org.jetbrains.compose.resources.stringResource
 
 /** What the Sports hub does outside itself: plays channels, opens pages. */
-internal data class SportsActions(
+data class SportsActions(
     val onPlay: (LiveChannel, nowTitle: String?) -> Unit,
     val onPlayCatchup: (LiveChannel, EpgProgram) -> Unit,
     val onOpenGame: (SportsEvent) -> Unit,
@@ -331,7 +331,7 @@ private fun AllEventsTab(
         val finishedTitle = stringResource(Res.string.livetv_sports_finished)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+            contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
             verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
         ) {
             if (empty) {

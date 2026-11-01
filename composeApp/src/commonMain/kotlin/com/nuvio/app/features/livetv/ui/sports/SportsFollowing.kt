@@ -136,7 +136,7 @@ internal fun SportsSearchTab(known: List<SportsEvent>, follows: SportsFollows, a
         val nameTitle = stringResource(Res.string.livetv_sports_add_name)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+            contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
             verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
         ) {
             if (q.length >= 3 && follows.words.none { it.equals(q, true) }) {
@@ -325,7 +325,7 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+        contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
     ) {
         item(key = "add") {

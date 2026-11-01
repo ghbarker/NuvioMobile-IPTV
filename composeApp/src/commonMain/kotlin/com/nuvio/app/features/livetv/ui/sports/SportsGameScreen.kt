@@ -181,7 +181,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s24)),
+        contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s24)),
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
     ) {
         // ---- the score strip
