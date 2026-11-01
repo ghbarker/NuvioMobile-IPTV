@@ -34,6 +34,20 @@ internal actual object EpgStore {
 
     actual fun program(ch: String, startMs: Long): EpgProgram? = programs[ch]?.firstOrNull { it.startMs == startMs }
 
+    actual fun findByWords(fromMs: Long, toMs: Long, minStopMs: Long, words: Collection<String>, inDescription: Boolean, limit: Int): List<Pair<String, EpgProgram>> {
+        val clean = words.map { it.trim().lowercase() }.filter { it.length >= 3 }.distinct()
+        if (clean.isEmpty()) return emptyList()
+        val out = ArrayList<Pair<String, EpgProgram>>()
+        programs.forEach { (ch, list) ->
+            list.forEach { p ->
+                if (out.size >= limit || p.startMs < fromMs || p.startMs >= toMs || p.stopMs <= minStopMs) return@forEach
+                val text = (p.title + if (inDescription) " " + p.description.orEmpty() else "").lowercase()
+                if (clean.any { it in text }) out += ch to p
+            }
+        }
+        return out
+    }
+
     actual fun nowNext(channels: Collection<String>, nowMs: Long): Map<String, NowNext> {
         val out = HashMap<String, NowNext>()
         channels.forEach { ch ->

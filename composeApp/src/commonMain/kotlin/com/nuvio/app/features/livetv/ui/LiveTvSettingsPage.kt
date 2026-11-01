@@ -47,6 +47,7 @@ import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.record.RecordingRules
+import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -145,6 +146,15 @@ import nuvio.composeapp.generated.resources.livetv_section_guides
 import nuvio.composeapp.generated.resources.livetv_section_playlists
 import nuvio.composeapp.generated.resources.livetv_section_watching
 import nuvio.composeapp.generated.resources.livetv_show_tab
+import nuvio.composeapp.generated.resources.livetv_sports
+import nuvio.composeapp.generated.resources.livetv_sports_show
+import nuvio.composeapp.generated.resources.livetv_sports_show_description
+import nuvio.composeapp.generated.resources.livetv_sports_hide_scores
+import nuvio.composeapp.generated.resources.livetv_sports_hide_scores_description
+import nuvio.composeapp.generated.resources.livetv_sports_scoring_alerts
+import nuvio.composeapp.generated.resources.livetv_sports_scoring_alerts_description
+import nuvio.composeapp.generated.resources.livetv_sports_score_chip
+import nuvio.composeapp.generated.resources.livetv_sports_score_chip_description
 import nuvio.composeapp.generated.resources.livetv_show_tab_description
 import nuvio.composeapp.generated.resources.livetv_stream_format
 import nuvio.composeapp.generated.resources.livetv_stream_format_description
@@ -217,6 +227,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val status by remember { LiveTvRepository.ensureLoaded(); LiveTvRepository.status }.collectAsStateWithLifecycle()
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
+    val sports by SportsRepository.settings.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -410,6 +421,42 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.vodMergeDuplicates,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(vodMergeDuplicates = on) } },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_sports), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show),
+                    description = stringResource(Res.string.livetv_sports_show_description),
+                    checked = sports.showInSidebar,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showInSidebar = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_hide_scores),
+                    description = stringResource(Res.string.livetv_sports_hide_scores_description),
+                    checked = sports.hideScores,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(hideScores = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_score_chip),
+                    description = stringResource(Res.string.livetv_sports_score_chip_description),
+                    checked = sports.scoreOnInfoBar,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(scoreOnInfoBar = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_scoring_alerts),
+                    description = stringResource(Res.string.livetv_sports_scoring_alerts_description),
+                    checked = sports.scoringAlerts,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(scoringAlerts = on) } },
                 )
             }
         }

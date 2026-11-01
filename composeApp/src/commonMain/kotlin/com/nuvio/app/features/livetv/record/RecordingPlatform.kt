@@ -60,6 +60,16 @@ internal expect object RecordingPlatform {
     /** A notification about a recording (one per [id]; a new one with the same id replaces it). */
     fun notify(id: String, title: String, text: String)
 
+    /**
+     * A reminder notification (a show or game about to start): tapping it opens [openUrl] in the
+     * app (a Live TV link, see LiveTvDeepLinks), or the app itself when null. [important] makes
+     * it a heads-up one with sound. One per [id].
+     */
+    fun notifyReminder(id: String, title: String, text: String, openUrl: String?, important: Boolean)
+
+    /** Takes a notification posted with [notifyReminder] or [notify] down again. */
+    fun cancelNotification(id: String)
+
     /** Whether the device is online right now. */
     fun online(): Boolean
 }

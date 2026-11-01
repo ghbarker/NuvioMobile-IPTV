@@ -145,6 +145,13 @@ import com.nuvio.app.features.livetv.ui.OnDemandActions
 import com.nuvio.app.features.livetv.ui.OnDemandScreen
 import com.nuvio.app.features.livetv.ui.OnDemandSeeAllScreen
 import com.nuvio.app.features.livetv.ui.RecordingsScreen
+import com.nuvio.app.features.livetv.ui.sports.SportsActions
+import com.nuvio.app.features.livetv.ui.sports.SportsGameScreen
+import com.nuvio.app.features.livetv.ui.sports.SportsLeagueScreen
+import com.nuvio.app.features.livetv.ui.sports.SportsScreen
+import com.nuvio.app.features.livetv.LiveTvDeepLinks
+import com.nuvio.app.features.livetv.LiveTvLink
+import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.LiveTvRecording
 import com.nuvio.app.features.player.PlayerLaunch
@@ -198,6 +205,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
@@ -384,6 +392,8 @@ internal fun MainAppContent(
     val liveTvCatchupUnavailable = stringResource(Res.string.livetv_catchup_unavailable)
     val liveTvOnDemandTitle = stringResource(Res.string.livetv_on_demand)
     val liveTvRecordingsTitle = stringResource(Res.string.livetv_recordings)
+    val liveTvSportsTitle = stringResource(Res.string.livetv_sports)
+    val liveTvChannelGone = stringResource(Res.string.livetv_channel_gone)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -940,6 +950,41 @@ internal fun MainAppContent(
                     return@launch
                 }
                 navController.navigate(PlayerRoute(launchId = launchId, title = program.title))
+            }
+        }
+
+        val sportsActions = SportsActions(
+            onPlay = ::openLiveChannel,
+            onPlayCatchup = ::openLiveCatchup,
+            onOpenGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) },
+            onOpenLeague = { l -> navController.navigate(LiveTvSportsLeagueRoute(leagueId = l.id, title = l.name)) },
+        )
+
+        // Live TV hook: a reminder or game notification was tapped.
+        LaunchedEffect(navController) {
+            if (!ownsAppRuntime) return@LaunchedEffect
+            LiveTvDeepLinks.pending.collectLatest { link ->
+                when (link) {
+                    is LiveTvLink.Channel -> {
+                        LiveTvRepository.ensureLoaded(updateCheckDelayMs = 0L)
+                        val channel = withTimeoutOrNull(15_000L) {
+                            LiveTvRepository.displayChannels.first { list -> list.any { it.key == link.key } }
+                        }?.firstOrNull { it.key == link.key }
+                        if (channel != null) openLiveChannel(channel, null) else NuvioToastController.show(liveTvChannelGone)
+                        LiveTvDeepLinks.consume(link)
+                    }
+                    is LiveTvLink.SportsGame -> {
+                        activateTab(AppScreenTab.LiveTv)
+                        navController.navigate(LiveTvSportsGameRoute(eventId = link.eventId, title = liveTvSportsTitle)) { launchSingleTop = true }
+                        LiveTvDeepLinks.consume(link)
+                    }
+                    LiveTvLink.Sports -> {
+                        activateTab(AppScreenTab.LiveTv)
+                        navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) { launchSingleTop = true }
+                        LiveTvDeepLinks.consume(link)
+                    }
+                    null -> Unit
+                }
             }
         }
 
@@ -1547,6 +1592,7 @@ internal fun MainAppContent(
                                 onLiveTvOnDemandClick = { navController.navigate(LiveTvOnDemandRoute(liveTvOnDemandTitle)) },
                                 onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
+                                onLiveTvSportsClick = { navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) },
                                 onLiveTvSettingsClick = {
                                     if (useNativeNavigation && !isTabletLayout) {
                                         activateTab(AppScreenTab.Settings)
@@ -1713,6 +1759,18 @@ internal fun MainAppContent(
                 entry<LiveTvOnDemandRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
                     OnDemandScreen(onBack = onBack, actions = onDemandActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvSportsRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    SportsScreen(onBack = onBack, actions = sportsActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvSportsGameRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    SportsGameScreen(eventId = route.eventId, onBack = onBack, actions = sportsActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvSportsLeagueRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    SportsLeagueScreen(leagueId = route.leagueId, onBack = onBack, actions = sportsActions, modifier = Modifier.fillMaxSize())
                 }
                 entry<LiveTvOnDemandSeeAllRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)

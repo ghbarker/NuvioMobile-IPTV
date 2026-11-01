@@ -70,6 +70,17 @@ internal object LiveTvPlayback {
 
     private val xtream: XtreamClient by lazy { XtreamClient() }
 
+    /**
+     * The Sports hub's answer to "this channel showing a live game won't play": the next channel
+     * showing the same game (the failed channel's key, and the keys already tried).
+     */
+    var gameFailover: ((failedKey: String, tried: Set<String>) -> LiveChannel?)? = null
+
+    /** The key of the channel last handed to the player (for the Sports hub's score on the info bar). */
+    @kotlin.concurrent.Volatile
+    var currentKey: String? = null
+        private set
+
     /** The request for a channel, with its HLS→TS memory applied. */
     fun requestFor(channel: LiveChannel): LivePlayRequest {
         val url = synchronized(lock) { if (channel.key in tsInstead) tsLinkFor(channel.url) ?: channel.url else channel.url }
@@ -104,6 +115,7 @@ internal object LiveTvPlayback {
             backupTried.clear()
             playing[req.url] = channel
         }
+        currentKey = channel.key
         return PlayerLaunch(
             profileId = profileId,
             title = channel.name,
@@ -237,10 +249,11 @@ internal object LiveTvPlayback {
             synchronized(lock) { playing[req.url] = channel }
             return LiveFallback(channel, req)
         }
-        // 2. Another channel by the same name.
-        val next = backupFor(channel) ?: return null
+        // 2. Another channel by the same name; 3. another channel showing the same game (Sports).
+        val next = backupFor(channel) ?: gameFailoverFor(channel) ?: return null
         val req = requestFor(next)
-        synchronized(lock) { playing[req.url] = next }
+        synchronized(lock) { playing[req.url] = next; backupTried += next.key }
+        currentKey = next.key
         LiveTvPreferences.recordWatched(next.key, addToRecent = false)
         return LiveFallback(next, req, switchedFrom = channel)
     }
@@ -261,6 +274,12 @@ internal object LiveTvPlayback {
             // Other playlists first.
             .sortedBy { if (it.sourceId != failed.sourceId) 0 else 1 }
             .firstOrNull()
+    }
+
+    private fun gameFailoverFor(failed: LiveChannel): LiveChannel? {
+        if (!LiveTvPreferences.currentSettings().autoBackupChannel) return null
+        val tried = synchronized(lock) { backupTried += failed.key; backupTried.toSet() }
+        return runCatching { gameFailover?.invoke(failed.key, tried) }.getOrNull()?.takeIf { it.key != failed.key && it.key !in tried }
     }
 
     private fun indexNow(): Map<String, List<LiveChannel>> {

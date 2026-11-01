@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
@@ -78,6 +79,9 @@ import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.features.livetv.sports.SportsLive
+import com.nuvio.app.features.livetv.sports.SportsRepository
+import com.nuvio.app.features.livetv.sports.GameState
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -95,6 +99,7 @@ import nuvio.composeapp.generated.resources.livetv_rec_stop
 import nuvio.composeapp.generated.resources.livetv_recordings
 import nuvio.composeapp.generated.resources.livetv_search_hint
 import nuvio.composeapp.generated.resources.livetv_settings
+import nuvio.composeapp.generated.resources.livetv_sports
 import nuvio.composeapp.generated.resources.livetv_title
 import nuvio.composeapp.generated.resources.livetv_update_now
 import org.jetbrains.compose.resources.stringResource
@@ -117,6 +122,8 @@ fun LiveTvScreen(
     onOpenOnDemand: () -> Unit = {},
     /** Opens Recordings. */
     onOpenRecordings: () -> Unit = {},
+    /** Opens the Sports hub. */
+    onOpenSports: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
@@ -128,6 +135,8 @@ fun LiveTvScreen(
     val seriesRules by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
     val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty()
     var manualRecording by remember { mutableStateOf<Pair<LiveChannel, Boolean>?>(null) }
+    val sportsSettings by remember { SportsRepository.start(); SportsRepository.settings }.collectAsStateWithLifecycle()
+    val sportsOn = sportsSettings.showInSidebar
     val state by remember {
         LiveTvRepository.ensureLoaded()
         LiveTvViewState.list
@@ -182,6 +191,11 @@ fun LiveTvScreen(
                             if (showOnDemand) {
                                 IconButton(onClick = onOpenOnDemand) {
                                     Icon(Icons.Filled.Movie, contentDescription = stringResource(Res.string.livetv_on_demand), tint = tokens.colors.textPrimary)
+                                }
+                            }
+                            if (sportsOn) {
+                                IconButton(onClick = onOpenSports) {
+                                    Icon(Icons.Filled.SportsSoccer, contentDescription = stringResource(Res.string.livetv_sports), tint = tokens.colors.textPrimary)
                                 }
                             }
                             if (showRecordings) {
@@ -357,6 +371,9 @@ internal fun ChannelRow(
     val tokens = MaterialTheme.nuvio
     val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val current = nowNext?.now
+    val liveGames by SportsLive.byChannel.collectAsStateWithLifecycle()
+    val sportsSettings by SportsRepository.settings.collectAsStateWithLifecycle()
+    val game = liveGames[channel.key]?.takeIf { it.state == GameState.LIVE && !sportsSettings.hideScores && sportsSettings.scoreOnInfoBar }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -385,6 +402,18 @@ internal fun ChannelRow(
                 if (isFavorite) {
                     Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(NuvioTokens.Icon.sm))
                 }
+            }
+            if (game != null) {
+                // The live score of the game this channel is showing (Sports): "DET 21 – 17 CHI · 3rd 4:12".
+                val sides = game.ordered(com.nuvio.app.features.livetv.sports.SportsCatalog.league(game.leagueId)?.sport ?: com.nuvio.app.features.livetv.sports.Sport.OTHER)
+                Text(
+                    text = sides.joinToString("  –  ") { (it.team.abbr.ifBlank { it.team.name }) + " " + (it.score ?: "") } + (game.status?.let { "  ·  $it" } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.LiveNowLine,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (current != null) {
                 Text(
