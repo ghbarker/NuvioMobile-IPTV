@@ -2782,6 +2782,14 @@
     <string name="livetv_reminder_lead_description">How long before a show starts its notification arrives; Open plays the channel</string>
     <string name="livetv_reminder_lead_at_start">At the start</string>
     <string name="livetv_reminder_lead_minutes">%1$d minutes before</string>
+    <!-- Live TV: manage groups and channels -->
+    <string name="livetv_manage">Manage</string>
+    <string name="livetv_manage_menu">Manage groups and channels</string>
+    <string name="livetv_manage_groups">Groups</string>
+    <string name="livetv_manage_channels">Channels</string>
+    <string name="livetv_manage_hint">Drag the handle to reorder. The eye shows or hides. Tap a group to rename it.</string>
+    <string name="livetv_manage_reset_order">Reset order</string>
+    <string name="livetv_manage_show_all">Show everything again</string>
     <string name="livetv_channel_gone">That channel isn't in your playlists any more.</string>
     <string name="compose_settings_page_livetv">Live TV</string>
     <string name="compose_settings_root_livetv_description">Playlists, TV guide and channel options</string>

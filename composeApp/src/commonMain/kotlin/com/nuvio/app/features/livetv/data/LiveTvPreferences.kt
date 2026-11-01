@@ -1074,6 +1074,12 @@ internal open class LiveTvPreferencesStore {
         edit { it[my(LiveTvKeys.groupOrder)] = LiveTvCodec.encodeStringList(order) }
     }
 
+    /** Saves the whole group order at once (drag to reorder): "my order" from then on. */
+    fun setGroupOrder(ids: List<String>) = edit { p ->
+        p[my(LiveTvKeys.groupOrder)] = LiveTvCodec.encodeStringList(ids)
+        if (p.str(LiveTvKeys.groupSort) != "custom") p[LiveTvKeys.groupSort] = "custom"
+    }
+
     fun createCustomGroup(name: String): String {
         val id = ChannelGroup.CUSTOM_PREFIX + randomId(8)
         updateCustomGroups { it + CustomGroup(id, name.trim().ifBlank { "My group" }) }

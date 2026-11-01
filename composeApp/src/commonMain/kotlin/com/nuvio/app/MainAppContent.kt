@@ -145,6 +145,7 @@ import com.nuvio.app.features.livetv.ui.OnDemandActions
 import com.nuvio.app.features.livetv.ui.OnDemandScreen
 import com.nuvio.app.features.livetv.ui.OnDemandSeeAllScreen
 import com.nuvio.app.features.livetv.ui.RecordingsScreen
+import com.nuvio.app.features.livetv.ui.LiveTvManageScreen
 import com.nuvio.app.features.livetv.ui.sports.SportsActions
 import com.nuvio.app.features.livetv.ui.sports.SportsGameScreen
 import com.nuvio.app.features.livetv.ui.sports.SportsLeagueScreen
@@ -394,6 +395,7 @@ internal fun MainAppContent(
     val liveTvRecordingsTitle = stringResource(Res.string.livetv_recordings)
     val liveTvSportsTitle = stringResource(Res.string.livetv_sports)
     val liveTvChannelGone = stringResource(Res.string.livetv_channel_gone)
+    val liveTvManageTitle = stringResource(Res.string.livetv_manage)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -1593,6 +1595,7 @@ internal fun MainAppContent(
                                 onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSportsClick = { navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) },
+                                onLiveTvManageClick = { navController.navigate(LiveTvManageRoute(liveTvManageTitle)) },
                                 onLiveTvSettingsClick = {
                                     if (useNativeNavigation && !isTabletLayout) {
                                         activateTab(AppScreenTab.Settings)
@@ -1759,6 +1762,10 @@ internal fun MainAppContent(
                 entry<LiveTvOnDemandRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
                     OnDemandScreen(onBack = onBack, actions = onDemandActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvManageRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    LiveTvManageScreen(onBack = onBack, modifier = Modifier.fillMaxSize())
                 }
                 entry<LiveTvSportsRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)

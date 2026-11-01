@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Refresh
@@ -101,6 +102,9 @@ import nuvio.composeapp.generated.resources.livetv_recordings
 import nuvio.composeapp.generated.resources.livetv_search_hint
 import nuvio.composeapp.generated.resources.livetv_settings
 import nuvio.composeapp.generated.resources.livetv_sports
+import nuvio.composeapp.generated.resources.livetv_manage_menu
+import com.nuvio.app.core.ui.Menu
+import com.nuvio.app.core.ui.MenuItem
 import nuvio.composeapp.generated.resources.livetv_title
 import nuvio.composeapp.generated.resources.livetv_update_now
 import org.jetbrains.compose.resources.stringResource
@@ -125,6 +129,8 @@ fun LiveTvScreen(
     onOpenRecordings: () -> Unit = {},
     /** Opens the Sports hub. */
     onOpenSports: () -> Unit = {},
+    /** Opens Manage (reorder and show or hide groups and channels). */
+    onOpenManage: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
@@ -155,6 +161,7 @@ fun LiveTvScreen(
     val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
+    var overflow by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(scrollToTopRequests) {
@@ -207,6 +214,15 @@ fun LiveTvScreen(
                             }
                             IconButton(onClick = onOpenSettings) {
                                 Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_settings), tint = tokens.colors.textPrimary)
+                            }
+                            if (state.hasSources) {
+                                IconButton(onClick = { overflow = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = null, tint = tokens.colors.textPrimary)
+                                }
+                                Menu(expanded = overflow, onDismissRequest = { overflow = false }) {
+                                    MenuItem(text = stringResource(Res.string.livetv_manage_menu), onClick = { overflow = false; onOpenManage() })
+                                    MenuItem(text = stringResource(Res.string.livetv_update_now), onClick = { overflow = false; LiveTvRepository.refreshAll(force = true) })
+                                }
                             }
                         },
                     )

@@ -124,6 +124,7 @@ internal data class AppTabActions(
     val onLiveTvOnDemandClick: () -> Unit = {},
     val onLiveTvRecordingsClick: () -> Unit = {},
     val onLiveTvSportsClick: () -> Unit = {},
+    val onLiveTvManageClick: () -> Unit = {},
 )
 
 @Composable
@@ -198,6 +199,7 @@ internal fun AppTabHost(
                     onOpenOnDemand = actions.onLiveTvOnDemandClick,
                     onOpenRecordings = actions.onLiveTvRecordingsClick,
                     onOpenSports = actions.onLiveTvSportsClick,
+                    onOpenManage = actions.onLiveTvManageClick,
                 )
             }
 
