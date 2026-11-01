@@ -6,6 +6,7 @@ import com.nuvio.app.features.livetv.data.EpgStore
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.PrefValue
+import com.nuvio.app.features.livetv.ondemand.OnDemandStore
 import com.nuvio.app.features.livetv.sync.LiveTvDriveHttp
 
 /**
@@ -20,6 +21,7 @@ internal object LiveTvPreferencesAndroid {
     fun initialize(context: Context) {
         LiveTvFiles.initialize(context)
         EpgStore.initialize(context)
+        OnDemandStore.initialize(context)
         LiveTvDriveHttp.initialize(context)
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)

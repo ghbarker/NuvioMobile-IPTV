@@ -141,6 +141,9 @@ import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
+import com.nuvio.app.features.livetv.ui.OnDemandActions
+import com.nuvio.app.features.livetv.ui.OnDemandScreen
+import com.nuvio.app.features.livetv.ui.OnDemandSeeAllScreen
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -376,6 +379,7 @@ internal fun MainAppContent(
     val liveTvGuideTitle = stringResource(Res.string.livetv_guide)
     val liveTvSettingsTitle = stringResource(Res.string.compose_settings_page_livetv)
     val liveTvCatchupUnavailable = stringResource(Res.string.livetv_catchup_unavailable)
+    val liveTvOnDemandTitle = stringResource(Res.string.livetv_on_demand)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -885,6 +889,21 @@ internal fun MainAppContent(
             val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
             navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
         }
+
+        fun openOnDemandLaunch(playerLaunch: PlayerLaunch) {
+            if (playerSettingsUiState.externalPlayerEnabled) {
+                coroutineScope.launch { openExternalPlayback(playerLaunch) }
+                return
+            }
+            val launchId = PlayerLaunchStore.put(playerLaunch)
+            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+        }
+
+        val onDemandActions = OnDemandActions(
+            onPlay = ::openOnDemandLaunch,
+            onOpenDetails = { type, tmdbId, title -> navController.navigate(DetailRoute(type = type, id = "tmdb:$tmdbId", title = title)) },
+            onSeeAll = { kind, categoryUid, title -> navController.navigate(LiveTvOnDemandSeeAllRoute(kind = kind.key, categoryUid = categoryUid, title = title)) },
+        )
 
         fun openLiveCatchup(channel: LiveChannel, program: EpgProgram) {
             coroutineScope.launch {
@@ -1498,6 +1517,7 @@ internal fun MainAppContent(
                                 onWatchPartySettingsClick = { navController.navigate(PartyRoute(title = watchPartyTitle)) },
                                 onLiveTvPlay = ::openLiveChannel,
                                 onLiveTvReplay = ::openLiveCatchup,
+                                onLiveTvOnDemandClick = { navController.navigate(LiveTvOnDemandRoute(liveTvOnDemandTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSettingsClick = {
                                     if (useNativeNavigation && !isTabletLayout) {
@@ -1656,6 +1676,21 @@ internal fun MainAppContent(
                         onPlayChannel = ::openLiveChannel,
                         modifier = Modifier.fillMaxSize(),
                         onPlayCatchup = ::openLiveCatchup,
+                    )
+                }
+                entry<LiveTvOnDemandRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    OnDemandScreen(onBack = onBack, actions = onDemandActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvOnDemandSeeAllRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    OnDemandSeeAllScreen(
+                        kindKey = route.kind,
+                        categoryUid = route.categoryUid,
+                        title = route.title,
+                        onBack = onBack,
+                        actions = onDemandActions,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 entry<DownloadsRoute> { route ->

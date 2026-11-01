@@ -42,6 +42,8 @@ import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.model.EpgSource
 import com.nuvio.app.features.livetv.model.PlaylistAccount
 import com.nuvio.app.features.livetv.model.PlaylistSource
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
 import com.nuvio.app.features.livetv.sync.SignInPrompt
 import com.nuvio.app.features.settings.SettingsGroup
@@ -104,6 +106,15 @@ import nuvio.composeapp.generated.resources.livetv_restore_description
 import nuvio.composeapp.generated.resources.livetv_restore_message
 import nuvio.composeapp.generated.resources.livetv_section_drive
 import nuvio.composeapp.generated.resources.livetv_section_general
+import nuvio.composeapp.generated.resources.livetv_section_on_demand
+import nuvio.composeapp.generated.resources.livetv_vod_default_sort
+import nuvio.composeapp.generated.resources.livetv_vod_default_sort_description
+import nuvio.composeapp.generated.resources.livetv_vod_import
+import nuvio.composeapp.generated.resources.livetv_vod_import_description
+import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates
+import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates_description
+import nuvio.composeapp.generated.resources.livetv_vod_update_now
+import nuvio.composeapp.generated.resources.livetv_vod_update_now_description
 import nuvio.composeapp.generated.resources.livetv_section_guides
 import nuvio.composeapp.generated.resources.livetv_section_playlists
 import nuvio.composeapp.generated.resources.livetv_section_watching
@@ -152,6 +163,7 @@ private sealed interface LiveDialog {
     data object FutureDays : LiveDialog
     data object StreamFormat : LiveDialog
     data object CatchupShift : LiveDialog
+    data object VodDefaultSort : LiveDialog
     data object ConfirmRestore : LiveDialog
     data object ConfirmSignOut : LiveDialog
 }
@@ -172,6 +184,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val accounts by LiveTvPreferences.playlistAccounts.collectAsStateWithLifecycle()
     val status by remember { LiveTvRepository.ensureLoaded(); LiveTvRepository.status }.collectAsStateWithLifecycle()
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
+    val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     fun update(transform: (com.nuvio.app.features.livetv.model.LiveTvSettings) -> com.nuvio.app.features.livetv.model.LiveTvSettings) =
         LiveTvPreferences.updateSettings(transform)
@@ -321,6 +334,47 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     isTablet = isTablet,
                     trailingContent = { ValueLabel(offsetLabel(settings.catchupShiftMinutes, stringResource(Res.string.livetv_catchup_shift_none))) },
                     onClick = { dialog = LiveDialog.CatchupShift },
+                )
+            }
+        }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_on_demand), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                playlists.forEachIndexed { i, pl ->
+                    if (i > 0) SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.livetv_vod_import) + " · " + pl.name,
+                        description = stringResource(Res.string.livetv_vod_import_description),
+                        checked = pl.importVod,
+                        enabled = pl.enabled,
+                        isTablet = isTablet,
+                        onCheckedChange = { on -> LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == pl.id) it.copy(importVod = on) else it } } },
+                    )
+                }
+                if (playlists.isNotEmpty()) SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_vod_update_now),
+                    description = vodStatus.message ?: stringResource(Res.string.livetv_vod_update_now_description),
+                    isTablet = isTablet,
+                    enabled = !vodStatus.loading && playlists.any { it.enabled && it.importVod },
+                    trailingContent = { if (vodStatus.loading) NuvioLoadingIndicator(size = NuvioTokens.Space.s20) },
+                    onClick = { OnDemandRepository.refreshNow() },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_vod_default_sort),
+                    description = stringResource(Res.string.livetv_vod_default_sort_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel((VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT).label) },
+                    onClick = { dialog = LiveDialog.VodDefaultSort },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_vod_merge_duplicates),
+                    description = stringResource(Res.string.livetv_vod_merge_duplicates_description),
+                    checked = settings.vodMergeDuplicates,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(vodMergeDuplicates = on) } },
                 )
             }
         }
@@ -486,6 +540,12 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 onDismiss = close,
             ) { v -> update { it.copy(catchupShiftMinutes = v) } }
         }
+        LiveDialog.VodDefaultSort -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_vod_default_sort),
+            options = VodSort.entries.map { it to it.label },
+            selected = VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT,
+            onDismiss = close,
+        ) { v -> update { it.copy(vodDefaultSort = v.name) } }
         LiveDialog.ConfirmRestore -> ConfirmDialog(
             title = stringResource(Res.string.livetv_restore) + "?",
             message = stringResource(Res.string.livetv_restore_message),

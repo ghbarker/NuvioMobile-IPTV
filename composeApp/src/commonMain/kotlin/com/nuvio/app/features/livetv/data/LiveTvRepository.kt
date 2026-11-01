@@ -474,7 +474,7 @@ internal object LiveTvRepository {
     }
 
     /** The chunks of a file as lines (a line may span two chunks). */
-    private fun linesOf(chunks: Sequence<String>): Sequence<String> = sequence {
+    internal fun linesOf(chunks: Sequence<String>): Sequence<String> = sequence {
         var carry = StringBuilder()
         for (chunk in chunks) {
             var start = 0

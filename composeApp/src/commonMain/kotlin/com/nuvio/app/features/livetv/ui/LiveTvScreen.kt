@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CalendarViewDay
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -70,6 +71,7 @@ import com.nuvio.app.features.livetv.model.ChannelGroup
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -80,6 +82,7 @@ import nuvio.composeapp.generated.resources.livetv_empty_body
 import nuvio.composeapp.generated.resources.livetv_empty_title
 import nuvio.composeapp.generated.resources.livetv_guide
 import nuvio.composeapp.generated.resources.livetv_no_results
+import nuvio.composeapp.generated.resources.livetv_on_demand
 import nuvio.composeapp.generated.resources.livetv_search_hint
 import nuvio.composeapp.generated.resources.livetv_settings
 import nuvio.composeapp.generated.resources.livetv_title
@@ -100,9 +103,14 @@ fun LiveTvScreen(
     onOpenSettings: () -> Unit,
     /** Replay the show on now from its beginning (catch-up). */
     onPlayCatchup: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
+    /** Opens On Demand (your providers' movies and series). */
+    onOpenOnDemand: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
+    val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
+    val hasOnDemand by OnDemandRepository.hasContent.collectAsStateWithLifecycle()
+    val showOnDemand = hasOnDemand || playlists.any { it.enabled && it.importVod }
     val state by remember {
         LiveTvRepository.ensureLoaded()
         LiveTvViewState.list
@@ -153,6 +161,11 @@ fun LiveTvScreen(
                             }
                             IconButton(onClick = onOpenGuide) {
                                 Icon(Icons.Filled.CalendarViewDay, contentDescription = stringResource(Res.string.livetv_guide), tint = tokens.colors.textPrimary)
+                            }
+                            if (showOnDemand) {
+                                IconButton(onClick = onOpenOnDemand) {
+                                    Icon(Icons.Filled.Movie, contentDescription = stringResource(Res.string.livetv_on_demand), tint = tokens.colors.textPrimary)
+                                }
                             }
                             IconButton(onClick = onOpenSettings) {
                                 Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_settings), tint = tokens.colors.textPrimary)
