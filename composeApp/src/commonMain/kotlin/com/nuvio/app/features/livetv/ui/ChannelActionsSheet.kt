@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -70,6 +71,7 @@ import nuvio.composeapp.generated.resources.livetv_epg_search_hint
 import nuvio.composeapp.generated.resources.livetv_group_new
 import nuvio.composeapp.generated.resources.livetv_group_new_hint
 import nuvio.composeapp.generated.resources.livetv_rename_hint
+import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
 
 /** Long-press options for a channel. */
@@ -81,6 +83,10 @@ internal fun ChannelActionsSheet(
     customGroups: List<CustomGroup>,
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
+    /** Set when the show on now can be restarted from its beginning (catch-up). */
+    onWatchFromStart: (() -> Unit)? = null,
+    /** More rows, after Play (recordings and the like). */
+    extraRows: @Composable (close: (() -> Unit) -> Unit) -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -105,6 +111,10 @@ internal fun ChannelActionsSheet(
             }
             NuvioBottomSheetDivider()
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
+            if (onWatchFromStart != null) {
+                NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_watch_from_start), icon = Icons.Filled.Replay, onClick = { close(onWatchFromStart) })
+            }
+            extraRows { then -> close(then) }
             NuvioBottomSheetActionRow(
                 title = stringResource(if (isFavorite) Res.string.livetv_action_remove_favorite else Res.string.livetv_action_add_favorite),
                 icon = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,

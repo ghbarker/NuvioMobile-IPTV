@@ -24,6 +24,10 @@ import androidx.compose.material.icons.filled.CalendarViewDay
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -68,7 +72,13 @@ import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.NowNext
 import com.nuvio.app.features.livetv.model.ChannelGroup
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.player.LiveTvCatchup
+import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -78,6 +88,11 @@ import nuvio.composeapp.generated.resources.livetv_empty_body
 import nuvio.composeapp.generated.resources.livetv_empty_title
 import nuvio.composeapp.generated.resources.livetv_guide
 import nuvio.composeapp.generated.resources.livetv_no_results
+import nuvio.composeapp.generated.resources.livetv_on_demand
+import nuvio.composeapp.generated.resources.livetv_rec_record_now
+import nuvio.composeapp.generated.resources.livetv_rec_schedule
+import nuvio.composeapp.generated.resources.livetv_rec_stop
+import nuvio.composeapp.generated.resources.livetv_recordings
 import nuvio.composeapp.generated.resources.livetv_search_hint
 import nuvio.composeapp.generated.resources.livetv_settings
 import nuvio.composeapp.generated.resources.livetv_title
@@ -96,9 +111,23 @@ fun LiveTvScreen(
     onPlayChannel: (LiveChannel, nowTitle: String?) -> Unit,
     onOpenGuide: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** Replay the show on now from its beginning (catch-up). */
+    onPlayCatchup: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
+    /** Opens On Demand (your providers' movies and series). */
+    onOpenOnDemand: () -> Unit = {},
+    /** Opens Recordings. */
+    onOpenRecordings: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val listState = rememberLazyListState()
+    val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
+    val hasOnDemand by OnDemandRepository.hasContent.collectAsStateWithLifecycle()
+    val showOnDemand = hasOnDemand || playlists.any { it.enabled && it.importVod }
+    val recordings by remember { LiveTvRecordingScheduler.start(); LiveTvRecorder.recordings }.collectAsStateWithLifecycle()
+    val schedules by LiveTvRecordingScheduler.schedules.collectAsStateWithLifecycle()
+    val seriesRules by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
+    val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty()
+    var manualRecording by remember { mutableStateOf<Pair<LiveChannel, Boolean>?>(null) }
     val state by remember {
         LiveTvRepository.ensureLoaded()
         LiveTvViewState.list
@@ -149,6 +178,16 @@ fun LiveTvScreen(
                             }
                             IconButton(onClick = onOpenGuide) {
                                 Icon(Icons.Filled.CalendarViewDay, contentDescription = stringResource(Res.string.livetv_guide), tint = tokens.colors.textPrimary)
+                            }
+                            if (showOnDemand) {
+                                IconButton(onClick = onOpenOnDemand) {
+                                    Icon(Icons.Filled.Movie, contentDescription = stringResource(Res.string.livetv_on_demand), tint = tokens.colors.textPrimary)
+                                }
+                            }
+                            if (showRecordings) {
+                                IconButton(onClick = onOpenRecordings) {
+                                    Icon(Icons.Filled.FiberManualRecord, contentDescription = stringResource(Res.string.livetv_recordings), tint = if (recordings.any { it.isRecording }) tokens.colors.danger else tokens.colors.textPrimary)
+                                }
                             }
                             IconButton(onClick = onOpenSettings) {
                                 Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_settings), tint = tokens.colors.textPrimary)
@@ -236,7 +275,23 @@ fun LiveTvScreen(
             customGroups = state.customGroups,
             onDismiss = { sheetChannel = null },
             onPlay = { onPlayChannel(channel, nowNext[channel.key]?.now?.title) },
+            onWatchFromStart = nowNext[channel.key]?.now
+                ?.takeIf { LiveTvCatchup.canWatchFromStart(channel, it, now) }
+                ?.let { program -> { onPlayCatchup(channel, program) } },
+            extraRows = { close ->
+                val active = recordings.firstOrNull { it.channelKey == channel.key && it.isRecording }
+                if (active != null) {
+                    NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { close { LiveTvRecorder.stop(active.id) } })
+                } else {
+                    NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_record_now), icon = Icons.Filled.FiberManualRecord, onClick = { close { manualRecording = channel to false } })
+                }
+                NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_schedule), icon = Icons.Filled.Schedule, onClick = { close { manualRecording = channel to true } })
+            },
         )
+    }
+
+    manualRecording?.let { (channel, scheduleOnly) ->
+        ManualRecordingDialog(channel = channel, scheduleOnly = scheduleOnly, onDismiss = { manualRecording = null })
     }
 }
 

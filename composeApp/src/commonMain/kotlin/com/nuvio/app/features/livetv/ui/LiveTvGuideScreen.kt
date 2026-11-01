@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +59,9 @@ import com.nuvio.app.features.livetv.model.ChannelGroup
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.player.LiveTvCatchup
+import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -67,6 +71,11 @@ import nuvio.composeapp.generated.resources.livetv_guide
 import nuvio.composeapp.generated.resources.livetv_guide_all
 import nuvio.composeapp.generated.resources.livetv_guide_no_info
 import nuvio.composeapp.generated.resources.livetv_guide_now
+import nuvio.composeapp.generated.resources.livetv_rec_cancel
+import nuvio.composeapp.generated.resources.livetv_rec_record
+import nuvio.composeapp.generated.resources.livetv_rec_series
+import nuvio.composeapp.generated.resources.livetv_replay
+import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
 
 private val ChannelColumnWidth = 92.dp
@@ -84,6 +93,8 @@ fun LiveTvGuideScreen(
     onBack: () -> Unit,
     onPlayChannel: (LiveChannel, nowTitle: String?) -> Unit,
     modifier: Modifier = Modifier,
+    /** Replay a show from the provider's catch-up (a past show, or the one on now from its start). */
+    onPlayCatchup: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
 ) {
     val tokens = MaterialTheme.nuvio
     val state by remember {
@@ -190,7 +201,12 @@ fun LiveTvGuideScreen(
     }
 
     detail?.let { (channel, program) ->
-        ProgramDetailsDialog(channel, program, now, onDismiss = { detail = null }, onPlay = { detail = null; onPlayChannel(channel, program.title.takeIf { program.isLive(now) }) })
+        ProgramDetailsDialog(
+            channel, program, now,
+            onDismiss = { detail = null },
+            onPlay = { detail = null; onPlayChannel(channel, program.title.takeIf { program.isLive(now) }) },
+            onReplay = if (LiveTvCatchup.isReplayable(channel, program, now)) ({ detail = null; onPlayCatchup(channel, program) }) else null,
+        )
     }
 }
 
@@ -255,6 +271,7 @@ private fun GuideRow(
                     val x = with(density) { ((start - gridStart) * pxPerMs()).toDp() }
                     val w = with(density) { ((stop - start) * pxPerMs()).toDp() }
                     val live = p.isLive(now)
+                    val replayable = !live && LiveTvCatchup.isReplayable(channel, p, now)
                     Box(
                         modifier = Modifier
                             .offset(x = x)
@@ -267,14 +284,19 @@ private fun GuideRow(
                             .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
                     ) {
                         Column {
-                            Text(
-                                text = p.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = tokens.colors.textPrimary,
-                                fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+                                if (replayable) {
+                                    Icon(Icons.Filled.Replay, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.width(12.dp).height(12.dp))
+                                }
+                                Text(
+                                    text = p.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = tokens.colors.textPrimary,
+                                    fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             if (w > 90.dp) {
                                 Text(
                                     text = formatClock(p.startMs) + " – " + formatClock(p.stopMs),
@@ -293,18 +315,53 @@ private fun GuideRow(
 }
 
 @Composable
-private fun ProgramDetailsDialog(channel: LiveChannel, program: EpgProgram, now: Long, onDismiss: () -> Unit, onPlay: () -> Unit) {
+private fun ProgramDetailsDialog(
+    channel: LiveChannel,
+    program: EpgProgram,
+    now: Long,
+    onDismiss: () -> Unit,
+    onPlay: () -> Unit,
+    /** Set when the show can be replayed from catch-up. */
+    onReplay: (() -> Unit)? = null,
+) {
     val tokens = MaterialTheme.nuvio
     var full by remember { mutableStateOf(program) }
     LaunchedEffect(program) {
         LiveTvRepository.programDetails(channel.key, program.startMs)?.let { full = it }
     }
+    val schedules by remember { LiveTvRecordingScheduler.start(); LiveTvRecordingScheduler.schedules }.collectAsStateWithLifecycle()
+    val scheduled = remember(schedules, program) { LiveTvRecordingScheduler.isScheduled(channel.key, program) }
+    // Record: a show still to come or on now; a past show too when the channel keeps it in catch-up.
+    val recordable = !LiveTvRepository.isPlaceholderTitle(program.title) && (program.stopMs > now || LiveTvCatchup.isReplayable(channel, program, now))
     DialogSurface(onDismissRequest = onDismiss, title = full.title) {
         Text(
             text = channel.name + "  ·  " + formatClock(full.startMs) + " – " + formatClock(full.stopMs) + (full.episode?.let { "  ·  $it" } ?: ""),
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
+        if (recordable) {
+            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                Chip(
+                    label = stringResource(if (scheduled) Res.string.livetv_rec_cancel else Res.string.livetv_rec_record),
+                    selected = scheduled,
+                    onClick = {
+                        if (scheduled) LiveTvRecordingScheduler.cancel(channel.key, program.startMs)
+                        else NuvioToastController.show(LiveTvRecordingScheduler.add(channel, full))
+                        onDismiss()
+                    },
+                )
+                val series = LiveTvRecordingScheduler.seriesFor(channel.key, program.title)
+                Chip(
+                    label = stringResource(Res.string.livetv_rec_series),
+                    selected = series != null,
+                    onClick = {
+                        if (series != null) LiveTvRecordingScheduler.removeSeries(series.id)
+                        else NuvioToastController.show(LiveTvRecordingScheduler.addSeries(channel, full))
+                        onDismiss()
+                    },
+                )
+            }
+        }
         full.category?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted) }
         full.description?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 12, overflow = TextOverflow.Ellipsis)
@@ -314,6 +371,13 @@ private fun ProgramDetailsDialog(channel: LiveChannel, program: EpgProgram, now:
         }
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_close), onClick = onDismiss)
+            if (onReplay != null) {
+                DialogButton(
+                    text = stringResource(if (program.isLive(now)) Res.string.livetv_watch_from_start else Res.string.livetv_replay),
+                    style = if (program.isLive(now)) DialogButtonStyle.Secondary else DialogButtonStyle.Primary,
+                    onClick = onReplay,
+                )
+            }
             if (program.isLive(now)) {
                 DialogButton(text = stringResource(Res.string.action_play), style = DialogButtonStyle.Primary, onClick = onPlay)
             }

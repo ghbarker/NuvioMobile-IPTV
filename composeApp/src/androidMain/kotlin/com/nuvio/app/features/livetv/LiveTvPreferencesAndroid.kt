@@ -6,6 +6,8 @@ import com.nuvio.app.features.livetv.data.EpgStore
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.PrefValue
+import com.nuvio.app.features.livetv.ondemand.OnDemandStore
+import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.sync.LiveTvDriveHttp
 
 /**
@@ -17,9 +19,16 @@ internal object LiveTvPreferencesAndroid {
     private const val preferencesName = "livetv_prefs"
     private const val devicePreferencesName = "livetv_device_prefs"
 
+    private var initialized = false
+
+    /** Sets Live TV up once (the activity, a recording alarm or the recording service may each be first). */
     fun initialize(context: Context) {
+        if (initialized) return
+        initialized = true
         LiveTvFiles.initialize(context)
         EpgStore.initialize(context)
+        OnDemandStore.initialize(context)
+        RecordingPlatform.initialize(context)
         LiveTvDriveHttp.initialize(context)
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)

@@ -396,6 +396,8 @@ data class LiveTvSettings(
     /** Recordings start this many minutes before the show and keep going this many after. */
     val recordPreMinutes: Int = 2,
     val recordPostMinutes: Int = 5,
+    /** Series rules made here keep only the newest this many episodes (0 = keep them all). */
+    val recordSeriesKeep: Int = 0,
     // ---- Live TV row on Nuvio's home screen
     /** Show the Live TV row on the home screen at all. */
     val homeRowEnabled: Boolean = true,

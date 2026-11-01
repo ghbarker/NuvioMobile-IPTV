@@ -2,6 +2,8 @@ package com.nuvio.app.features.livetv
 
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
 import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
 
 /** Starts Live TV's background work once the preferences are installed: updates and Drive sync. */
@@ -16,5 +18,7 @@ internal object LiveTvStartup {
             LiveTvRepository.ensureLoaded(updateCheckDelayMs = 8_000L)
         }
         LiveTvDriveSync.start()
+        OnDemandRepository.start()
+        LiveTvRecordingScheduler.start()
     }
 }

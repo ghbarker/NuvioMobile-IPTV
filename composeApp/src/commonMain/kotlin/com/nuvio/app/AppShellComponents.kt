@@ -30,6 +30,7 @@ import com.nuvio.app.features.home.HomeScreen
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryScreen
+import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.ui.LiveTvScreen
 import com.nuvio.app.features.library.LibrarySection
@@ -119,6 +120,9 @@ internal data class AppTabActions(
     val onLiveTvPlay: (LiveChannel, String?) -> Unit = { _, _ -> },
     val onLiveTvGuideClick: () -> Unit = {},
     val onLiveTvSettingsClick: () -> Unit = {},
+    val onLiveTvReplay: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
+    val onLiveTvOnDemandClick: () -> Unit = {},
+    val onLiveTvRecordingsClick: () -> Unit = {},
 )
 
 @Composable
@@ -189,6 +193,9 @@ internal fun AppTabHost(
                     onPlayChannel = actions.onLiveTvPlay,
                     onOpenGuide = actions.onLiveTvGuideClick,
                     onOpenSettings = actions.onLiveTvSettingsClick,
+                    onPlayCatchup = actions.onLiveTvReplay,
+                    onOpenOnDemand = actions.onLiveTvOnDemandClick,
+                    onOpenRecordings = actions.onLiveTvRecordingsClick,
                 )
             }
 
