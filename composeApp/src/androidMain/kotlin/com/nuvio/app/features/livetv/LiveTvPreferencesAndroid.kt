@@ -2,6 +2,8 @@ package com.nuvio.app.features.livetv
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.features.livetv.data.EpgStore
+import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.PrefValue
 
@@ -15,6 +17,8 @@ internal object LiveTvPreferencesAndroid {
     private const val devicePreferencesName = "livetv_device_prefs"
 
     fun initialize(context: Context) {
+        LiveTvFiles.initialize(context)
+        EpgStore.initialize(context)
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)
         LiveTvPreferences.installPersistence(
