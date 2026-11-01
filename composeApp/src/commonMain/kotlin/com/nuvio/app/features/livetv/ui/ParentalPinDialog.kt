@@ -21,6 +21,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.livetv.parental.ParentalControls
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.livetv_parental_is_locked
 import nuvio.composeapp.generated.resources.livetv_parental_pin
 import nuvio.composeapp.generated.resources.livetv_parental_pin_wrong
 import nuvio.composeapp.generated.resources.livetv_parental_unlock
@@ -67,7 +68,7 @@ internal fun ParentalPinDialog(
 @Composable
 internal fun UnlockGroupDialog(groupId: String, groupTitle: String, onDismiss: () -> Unit, onUnlocked: () -> Unit = {}) {
     ParentalPinDialog(
-        title = "“$groupTitle” " + stringResource(nuvio.composeapp.generated.resources.Res.string.livetv_parental_is_locked),
+        title = "“$groupTitle” " + stringResource(Res.string.livetv_parental_is_locked),
         onDismiss = onDismiss,
         onPin = { pin -> ParentalControls.unlock(groupId, pin).also { if (it) onUnlocked() } },
     )
