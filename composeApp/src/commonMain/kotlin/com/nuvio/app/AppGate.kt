@@ -311,6 +311,15 @@ internal fun AppGate(
                         gateScreen != AppGateScreen.Auth.name
                 )
 
+        // Already in the app with a profile: a passing Loading/Unauthenticated moment (the session
+        // refreshing when the app comes back to the foreground) must not send the user back to
+        // the profile picker. Only a confirmed sign-out leaves the main screen.
+        val alreadyInApp =
+            gateScreen == AppGateScreen.Main.name &&
+                ProfileRepository.state.value.activeProfile != null
+        if (alreadyInApp && authState is AuthState.Loading) return@LaunchedEffect
+        if (alreadyInApp && authState is AuthState.Unauthenticated && allowCachedProfileAccess) return@LaunchedEffect
+
         when (authState) {
             is AuthState.Loading -> {
                 if (hasCachedProfileAccess) {
