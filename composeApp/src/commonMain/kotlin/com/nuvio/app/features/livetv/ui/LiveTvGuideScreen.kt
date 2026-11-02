@@ -108,6 +108,7 @@ fun LiveTvGuideScreen(
         LiveTvViewState.list
     }.collectAsStateWithLifecycle()
     val generation by LiveTvRepository.guideGeneration.collectAsStateWithLifecycle()
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val now by produceState(LiveTvClock.nowMs()) {
         while (true) { value = LiveTvClock.nowMs(); delay(30_000) }
     }
@@ -117,9 +118,11 @@ fun LiveTvGuideScreen(
     val selected = sections.firstOrNull { it.group.id == selectedGroupId } ?: sections.firstOrNull()
     val channels = if (selectedGroupId == ChannelGroup.ALL) state.visible else selected?.channels.orEmpty()
 
-    // The grid shows from the start of the half hour before now, 24 hours ahead.
-    val gridStart = remember(now / HOUR_MS) { (now / SLOT_MS) * SLOT_MS - SLOT_MS }
-    val gridEnd = gridStart + 24 * HOUR_MS
+    // The grid goes back as far as the "Guide hours back" setting (so catch-up shows can be
+    // picked from it) and 24 hours ahead of now.
+    val pastHours = settings.epgPastHours.coerceAtLeast(1)
+    val gridStart = remember(now / HOUR_MS, pastHours) { (now / SLOT_MS) * SLOT_MS - pastHours * HOUR_MS }
+    val gridEnd = (now / SLOT_MS) * SLOT_MS + 24 * HOUR_MS
     val listState = rememberLazyListState()
     val hScroll = rememberScrollState()
     val scope = rememberCoroutineScope()
