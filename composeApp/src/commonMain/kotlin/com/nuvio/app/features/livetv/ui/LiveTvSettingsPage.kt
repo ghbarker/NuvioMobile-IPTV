@@ -97,6 +97,8 @@ import nuvio.composeapp.generated.resources.livetv_catchup_shift_none
 import nuvio.composeapp.generated.resources.livetv_section_catchup
 import nuvio.composeapp.generated.resources.livetv_days_ahead
 import nuvio.composeapp.generated.resources.livetv_days_ahead_description
+import nuvio.composeapp.generated.resources.livetv_hours_back
+import nuvio.composeapp.generated.resources.livetv_hours_back_description
 import nuvio.composeapp.generated.resources.livetv_delete_source_message
 import nuvio.composeapp.generated.resources.livetv_disable
 import nuvio.composeapp.generated.resources.livetv_drive_account
@@ -194,6 +196,8 @@ import nuvio.composeapp.generated.resources.livetv_reminder_lead
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_description
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_minutes
+import nuvio.composeapp.generated.resources.livetv_continue_watching
+import nuvio.composeapp.generated.resources.livetv_continue_watching_description
 import com.nuvio.app.features.livetv.reminders.LiveTvReminders
 import androidx.compose.material.icons.filled.Notifications
 import nuvio.composeapp.generated.resources.livetv_parental_pin
@@ -238,6 +242,14 @@ import androidx.compose.material.icons.filled.FileUpload
 
 private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
+private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168)
+
+private fun pastHoursLabel(h: Int): String = when {
+    h == 1 -> "1 hour"
+    h < 24 -> "$h hours"
+    h == 24 -> "1 day"
+    else -> "${h / 24} days"
+}
 /** Time shifts in minutes, half an hour apart, a day either way (the TV app's choices). */
 private val EPG_OFFSETS = (-24..24).map { it * 30 }
 private val PADDING_MINUTES = listOf(0, 1, 2, 3, 5, 10, 15, 30)
@@ -270,6 +282,7 @@ private sealed interface LiveDialog {
     data object PlaylistRefresh : LiveDialog
     data object EpgRefresh : LiveDialog
     data object FutureDays : LiveDialog
+    data object PastHours : LiveDialog
     data object StreamFormat : LiveDialog
     data object CatchupShift : LiveDialog
     data object VodDefaultSort : LiveDialog
@@ -311,6 +324,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val sports by SportsRepository.settings.collectAsStateWithLifecycle()
     val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
+    val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -416,6 +430,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     trailingContent = { ValueLabel(if (settings.epgFutureDays == 1) "1 day" else "${settings.epgFutureDays} days") },
                     onClick = { dialog = LiveDialog.FutureDays },
                 )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_hours_back),
+                    description = stringResource(Res.string.livetv_hours_back_description),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(pastHoursLabel(settings.epgPastHours)) },
+                    onClick = { dialog = LiveDialog.PastHours },
+                )
             }
         }
 
@@ -472,6 +494,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.autoBackupChannel,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(autoBackupChannel = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_continue_watching),
+                    description = stringResource(Res.string.livetv_continue_watching_description),
+                    checked = showInContinueWatching,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> LiveTvPreferences.setShowInContinueWatching(on) },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -876,6 +906,12 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             selected = settings.epgFutureDays,
             onDismiss = close,
         ) { v -> update { it.copy(epgFutureDays = v) }; LiveTvRepository.refreshEpgOnly() }
+        LiveDialog.PastHours -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_hours_back),
+            options = (PAST_HOURS + settings.epgPastHours).distinct().sorted().map { it to pastHoursLabel(it) },
+            selected = settings.epgPastHours,
+            onDismiss = close,
+        ) { v -> update { it.copy(epgPastHours = v) }; LiveTvRepository.refreshEpgOnly() }
         LiveDialog.StreamFormat -> ChoiceDialog(
             title = stringResource(Res.string.livetv_stream_format),
             options = listOf("auto" to "Auto", "ts" to "MPEG-TS", "m3u8" to "HLS (m3u8)"),

@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -107,17 +108,21 @@ fun LiveTvGuideScreen(
         LiveTvViewState.list
     }.collectAsStateWithLifecycle()
     val generation by LiveTvRepository.guideGeneration.collectAsStateWithLifecycle()
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val now by produceState(LiveTvClock.nowMs()) {
         while (true) { value = LiveTvClock.nowMs(); delay(30_000) }
     }
     val sections = state.sections.filter { it.channels.isNotEmpty() }
-    var selectedGroupId by remember { mutableStateOf<String?>(null) }
+    // Saved, so backing out of a channel returns to the same group and spot in the guide.
+    var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = sections.firstOrNull { it.group.id == selectedGroupId } ?: sections.firstOrNull()
     val channels = if (selectedGroupId == ChannelGroup.ALL) state.visible else selected?.channels.orEmpty()
 
-    // The grid shows from the start of the half hour before now, 24 hours ahead.
-    val gridStart = remember(now / HOUR_MS) { (now / SLOT_MS) * SLOT_MS - SLOT_MS }
-    val gridEnd = gridStart + 24 * HOUR_MS
+    // The grid goes back as far as the "Guide hours back" setting (so catch-up shows can be
+    // picked from it) and 24 hours ahead of now.
+    val pastHours = settings.epgPastHours.coerceAtLeast(1)
+    val gridStart = remember(now / HOUR_MS, pastHours) { (now / SLOT_MS) * SLOT_MS - pastHours * HOUR_MS }
+    val gridEnd = (now / SLOT_MS) * SLOT_MS + 24 * HOUR_MS
     val listState = rememberLazyListState()
     val hScroll = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -142,7 +147,9 @@ fun LiveTvGuideScreen(
             hScroll.animateScrollTo(target)
         }
     }
-    LaunchedEffect(Unit) { jumpToNow() }
+    // Jump to now only on first open; coming back from a channel keeps the guide where it was.
+    var jumpedToNow by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (!jumpedToNow) { jumpedToNow = true; jumpToNow() } }
 
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding()) {
         NuvioScreenHeader(

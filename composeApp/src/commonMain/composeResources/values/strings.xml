@@ -2835,4 +2835,8 @@
     <string name="livetv_channel_gone">That channel isn't in your playlists any more.</string>
     <string name="compose_settings_page_livetv">Live TV</string>
     <string name="compose_settings_root_livetv_description">Playlists, TV guide and channel options</string>
+    <string name="livetv_continue_watching">Show in Continue Watching</string>
+    <string name="livetv_continue_watching_description">Put live channels and catch-up replays you watched in Home's Continue Watching row</string>
+    <string name="livetv_hours_back">Guide hours back</string>
+    <string name="livetv_hours_back_description">How far back the TV guide goes, for picking catch-up shows</string>
 </resources>

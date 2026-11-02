@@ -192,6 +192,8 @@ internal object LiveTvKeys {
     const val reminders = "reminders"
     /** Phone only (not a TV key): minutes before a show its reminder rings. */
     const val reminderLead = "reminder_lead_minutes"
+    /** Phone only (not a TV key): whether live channels show in Home's Continue Watching. */
+    const val continueWatchingLive = "continue_watching_live"
     const val channelQuality = "channel_quality"
     const val channelAudio = "channel_audio"
     const val vodHiddenCategories = "vod_hidden_categories"
@@ -1159,6 +1161,12 @@ internal open class LiveTvPreferencesStore {
         .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, DEFAULT_REMINDER_LEAD)
 
     fun setReminderLeadMinutes(minutes: Int) = edit { it[LiveTvKeys.reminderLead] = minutes.coerceIn(0, 120) }
+
+    /** Whether live channels and catch-up replays show in Home's Continue Watching (off by default). */
+    val showInContinueWatching: StateFlow<Boolean> = _data.map { it.bool(LiveTvKeys.continueWatchingLive) ?: false }
+        .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, false)
+
+    fun setShowInContinueWatching(on: Boolean) = edit { it[LiveTvKeys.continueWatchingLive] = on }
 
     /** Drops reminders for shows that started more than [graceMs] ago. */
     fun pruneReminders(now: Long, graceMs: Long = 30 * 60_000L) = edit { p ->
