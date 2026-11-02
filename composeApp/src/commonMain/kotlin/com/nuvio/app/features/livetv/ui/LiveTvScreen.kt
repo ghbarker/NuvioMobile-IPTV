@@ -41,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -133,7 +134,14 @@ fun LiveTvScreen(
     onOpenManage: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
-    val listState = rememberLazyListState()
+    // Restore the open groups and the scroll position when coming back from the player.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = LiveTvListMemory.scrollIndex,
+        initialFirstVisibleItemScrollOffset = LiveTvListMemory.scrollOffset,
+    )
+    DisposableEffect(listState) {
+        onDispose { LiveTvListMemory.saveScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+    }
     val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
     val hasOnDemand by OnDemandRepository.hasContent.collectAsStateWithLifecycle()
     val showOnDemand = hasOnDemand || playlists.any { it.enabled && it.importVod }
@@ -158,8 +166,8 @@ fun LiveTvScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
-    // Groups start collapsed; tapping a header opens it.
-    val expanded = remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Groups start collapsed; tapping a header opens it. Kept across the trip to the player.
+    val expanded = remember { mutableStateOf(LiveTvListMemory.expanded) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var overflow by remember { mutableStateOf(false) }
@@ -286,13 +294,20 @@ fun LiveTvScreen(
                     item(key = "g:$id") {
                         GroupHeader(section.group, isCollapsed) {
                             if (section.group.locked) unlockGroup = section.group
-                            else expanded.value = if (isCollapsed) expanded.value + id else expanded.value - id
+                            else {
+                                expanded.value = if (isCollapsed) expanded.value + id else expanded.value - id
+                                LiveTvListMemory.expanded = expanded.value
+                            }
                         }
                     }
                     if (!isCollapsed) {
                         items(section.channels.size, key = { "$id/" + section.channels[it].key }) { i ->
                             val c = section.channels[i]
-                            ChannelRow(c, nowNext[c.key], now, c.key in state.favoriteKeys, onClick = { onPlayChannel(c, nowNext[c.key]?.now?.title) }) {
+                            ChannelRow(c, nowNext[c.key], now, c.key in state.favoriteKeys, onClick = {
+                                LiveTvListMemory.expanded = expanded.value + id
+                                LiveTvListMemory.saveScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                                onPlayChannel(c, nowNext[c.key]?.now?.title)
+                            }) {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress); sheetChannel = c
                             }
                         }
@@ -508,3 +523,21 @@ internal fun clock24(epochMs: Long): String {
 }
 
 internal val Color.Companion.LiveNowLine: Color get() = Color(0xFFE53935)
+
+/**
+ * What the channel list looked like when a channel was opened: which groups were open and
+ * where the list was scrolled. The Live TV screen leaves composition while the player is up,
+ * so this lives outside it; backing out of the player returns to the same group and spot.
+ */
+internal object LiveTvListMemory {
+    var expanded: Set<String> = emptySet()
+    var scrollIndex: Int = 0
+        private set
+    var scrollOffset: Int = 0
+        private set
+
+    fun saveScroll(index: Int, offset: Int) {
+        scrollIndex = index
+        scrollOffset = offset
+    }
+}
