@@ -1315,6 +1315,8 @@ object WatchProgressRepository {
         persist: Boolean,
         syncRemote: Boolean,
     ) {
+        // Live TV is never resumed, so it isn't recorded as watch progress.
+        if (session.contentType == LiveTvWatchProgressType || session.parentMetaType == LiveTvWatchProgressType) return
         val targetProfileId = session.profileId
         val positionMs = snapshot.positionMs.coerceAtLeast(0L)
         val durationMs = snapshot.durationMs.coerceAtLeast(0L)

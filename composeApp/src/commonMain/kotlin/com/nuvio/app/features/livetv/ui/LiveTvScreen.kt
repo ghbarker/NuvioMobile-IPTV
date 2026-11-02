@@ -158,7 +158,8 @@ fun LiveTvScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
-    val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Groups start collapsed; tapping a header opens it.
+    val expanded = remember { mutableStateOf<Set<String>>(emptySet()) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var overflow by remember { mutableStateOf(false) }
@@ -281,11 +282,11 @@ fun LiveTvScreen(
                 }
                 state.sections.forEach { section ->
                     val id = section.group.id
-                    val isCollapsed = id in collapsed.value
+                    val isCollapsed = id !in expanded.value
                     item(key = "g:$id") {
                         GroupHeader(section.group, isCollapsed) {
                             if (section.group.locked) unlockGroup = section.group
-                            else collapsed.value = if (isCollapsed) collapsed.value - id else collapsed.value + id
+                            else expanded.value = if (isCollapsed) expanded.value + id else expanded.value - id
                         }
                     }
                     if (!isCollapsed) {

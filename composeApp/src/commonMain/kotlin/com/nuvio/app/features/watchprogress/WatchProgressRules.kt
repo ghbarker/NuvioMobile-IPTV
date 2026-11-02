@@ -120,7 +120,8 @@ internal fun List<WatchProgressEntry>.continueWatchingEntries(
     limit: Int = ContinueWatchingLimit,
 ): List<WatchProgressEntry> {
     val selectionEntries = filter { entry ->
-        entry.isEffectivelyCompleted || entry.shouldTreatAsInProgressForContinueWatching()
+        !entry.isLiveTvEntry() &&
+            (entry.isEffectivelyCompleted || entry.shouldTreatAsInProgressForContinueWatching())
     }.newestByProgressKey().values.toList()
     val domainEntries = continueWatchingProgressEntries(
         progressRecords = selectionEntries.map(WatchProgressEntry::toDomainProgressRecord),
@@ -204,3 +205,9 @@ private fun WatchProgressEntry.toDomainProgressRecord(): WatchingProgressRecord 
             identityKey = entry.resolvedProgressKey(),
         )
     }
+
+/** Live TV channels and catch-up replays are not something to "continue", so they stay out of Continue Watching. */
+internal const val LiveTvWatchProgressType = "livetv"
+
+internal fun WatchProgressEntry.isLiveTvEntry(): Boolean =
+    contentType == LiveTvWatchProgressType || parentMetaType == LiveTvWatchProgressType
