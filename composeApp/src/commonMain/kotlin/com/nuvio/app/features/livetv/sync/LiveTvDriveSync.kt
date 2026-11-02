@@ -1,12 +1,12 @@
 package com.nuvio.app.features.livetv.sync
 
 import com.nuvio.app.features.livetv.data.LiveTvBackup
+import com.nuvio.app.features.livetv.data.LiveTvBackupApply
 import com.nuvio.app.features.livetv.data.LiveTvDirs
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.exportForSync
-import com.nuvio.app.features.livetv.data.importFromSync
 import com.nuvio.app.features.livetv.data.liveTvJson
 import com.nuvio.app.features.livetv.data.optJSONArray
 import com.nuvio.app.features.livetv.data.optJSONObject
@@ -87,8 +87,9 @@ internal object LiveTvDriveSync {
     /** The copy in Google Drive: when it was saved, on which device, and whether that was this one. */
     data class BackupInfo(val savedAtMs: Long, val device: String, val fromThisDevice: Boolean)
 
+    /** This device's id in backups it writes (Drive and exported files). */
     @OptIn(ExperimentalUuidApi::class)
-    private val deviceId: String
+    val deviceId: String
         get() = store.getString(KEY_DEVICE_ID) ?: Uuid.random().toString().also { store.putString(KEY_DEVICE_ID, it) }
 
     private fun loadState() = DriveSyncState(
@@ -238,9 +239,19 @@ internal object LiveTvDriveSync {
     fun backUpNow() { scope.launch { runCatching { push(force = true) } } }
     fun restoreNow() { scope.launch { runCatching { pull(force = true) } } }
 
+    /**
+     * After a backup file was imported: when this device syncs automatically, send the new setup
+     * to Drive right away so the saved copy matches it. Does nothing when signed out or sync is off.
+     */
+    fun backUpAfterImport() {
+        val s = _state.value
+        if (s.connected && s.autoSync) scope.launch { runCatching { push(force = true, replaceRemote = true) } }
+    }
+
     // ------------------------------------------------------------------ backup / restore
 
-    private suspend fun push(force: Boolean) = mutex.withLock {
+    /** [replaceRemote]: the Drive copy is overwritten as is, without merging in what it has. */
+    private suspend fun push(force: Boolean, replaceRemote: Boolean = false) = mutex.withLock {
         val token = token() ?: return@withLock
         emptyRefused = false
         _state.value = _state.value.copy(busy = true, message = if (force) "Backing up…" else null)
@@ -250,7 +261,7 @@ internal object LiveTvDriveSync {
             val hash0 = store.sha256(data.toString())
             if (!force && hash0 == store.getString(KEY_LAST_HASH)) return@runCatching false
             // Another device saved since we last synced: combine its changes with ours first.
-            remoteCopy(token)?.let { remote ->
+            if (!replaceRemote) remoteCopy(token)?.let { remote ->
                 val remoteData = remote.optJSONObject("data")
                 val base = readBase()
                 if (remoteData != null && remoteData.toString() != base?.toString()) {
@@ -361,12 +372,9 @@ internal object LiveTvDriveSync {
         applying = true
         appliedAtMs = LiveTvClock.nowMs()
         try {
-            val before = prefs.exportForSync()
-            val changed = prefs.importFromSync(data)
-            val after = prefs.exportForSync()
-            val keys = LiveTvBackup.changedKeys(before, after)
-            if (keys.isEmpty() && changed.isEmpty()) return
-            repository.reloadAfterSync(changed)
+            // The same import and reload as Import backup file (see LiveTvBackupApply).
+            val applied = LiveTvBackupApply.apply(data, prefs, repository::reloadAfterSync)
+            if (!applied.changedAnything) return
             delay(500)
         } finally {
             applying = false

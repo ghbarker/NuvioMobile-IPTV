@@ -37,10 +37,16 @@ import com.nuvio.app.core.ui.DialogOption
 import com.nuvio.app.core.ui.DialogSurface
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.BackupFileException
+import com.nuvio.app.features.livetv.data.BackupFileInfo
+import com.nuvio.app.features.livetv.data.exportBackupFileText
+import com.nuvio.app.features.livetv.data.importBackupFile
+import com.nuvio.app.features.livetv.data.parseBackupFile
 import com.nuvio.app.features.livetv.model.EpgSource
 import com.nuvio.app.features.livetv.model.PlaylistAccount
 import com.nuvio.app.features.livetv.model.PlaylistSource
@@ -60,7 +66,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
 import com.nuvio.app.features.livetv.sync.SignInPrompt
 import com.nuvio.app.features.settings.SettingsGroup
@@ -121,7 +129,27 @@ import nuvio.composeapp.generated.resources.livetv_remember_audio_description
 import nuvio.composeapp.generated.resources.livetv_restore
 import nuvio.composeapp.generated.resources.livetv_restore_description
 import nuvio.composeapp.generated.resources.livetv_restore_message
-import nuvio.composeapp.generated.resources.livetv_section_drive
+import nuvio.composeapp.generated.resources.livetv_section_backup
+import nuvio.composeapp.generated.resources.livetv_backup_file_body
+import nuvio.composeapp.generated.resources.livetv_import_file
+import nuvio.composeapp.generated.resources.livetv_import_file_description
+import nuvio.composeapp.generated.resources.livetv_export_file
+import nuvio.composeapp.generated.resources.livetv_export_file_description
+import nuvio.composeapp.generated.resources.livetv_import_confirm_title
+import nuvio.composeapp.generated.resources.livetv_import_confirm_message
+import nuvio.composeapp.generated.resources.livetv_import_confirm_action
+import nuvio.composeapp.generated.resources.livetv_import_unknown_device
+import nuvio.composeapp.generated.resources.livetv_import_unknown_date
+import nuvio.composeapp.generated.resources.livetv_import_done
+import nuvio.composeapp.generated.resources.livetv_export_done
+import nuvio.composeapp.generated.resources.livetv_file_error_not_backup
+import nuvio.composeapp.generated.resources.livetv_file_error_newer
+import nuvio.composeapp.generated.resources.livetv_file_error_no_sources
+import nuvio.composeapp.generated.resources.livetv_file_error_unavailable
+import nuvio.composeapp.generated.resources.livetv_file_error_read
+import nuvio.composeapp.generated.resources.livetv_file_error_write
+import nuvio.composeapp.generated.resources.livetv_file_error_import
+import nuvio.composeapp.generated.resources.livetv_drive_subsection
 import nuvio.composeapp.generated.resources.livetv_section_general
 import nuvio.composeapp.generated.resources.livetv_section_on_demand
 import nuvio.composeapp.generated.resources.livetv_section_recordings
@@ -203,7 +231,10 @@ import nuvio.composeapp.generated.resources.livetv_update_all
 import nuvio.composeapp.generated.resources.livetv_update_all_description
 import nuvio.composeapp.generated.resources.livetv_update_now
 import nuvio.composeapp.generated.resources.livetv_updated_at
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 
 private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
@@ -247,6 +278,8 @@ private sealed interface LiveDialog {
     data object RecordKeep : LiveDialog
     data object RecordSpaceRule : LiveDialog
     data object ConfirmRestore : LiveDialog
+    /** A backup file was picked and read: confirm before it replaces this device's setup. */
+    data class ConfirmImportFile(val text: String, val info: BackupFileInfo) : LiveDialog
     data object ConfirmSignOut : LiveDialog
     data object ParentalMenu : LiveDialog
     data object ParentalSetPin : LiveDialog
@@ -284,6 +317,44 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     var notificationsOn by remember { mutableStateOf(RecordingPlatform.notificationsAllowed()) }
     fun update(transform: (com.nuvio.app.features.livetv.model.LiveTvSettings) -> com.nuvio.app.features.livetv.model.LiveTvSettings) =
         LiveTvPreferences.updateSettings(transform)
+
+    // Backup files: what the last import or export said, and whether one is under way.
+    var fileMessage by remember { mutableStateOf<String?>(null) }
+    var fileBusy by remember { mutableStateOf(false) }
+    val pickImportFile = rememberLiveTvBackupImporter { result ->
+        result.fold(
+            onSuccess = { text ->
+                if (text != null) parseBackupFile(text).fold(
+                    onSuccess = { info -> fileMessage = null; dialog = LiveDialog.ConfirmImportFile(text, info) },
+                    onFailure = { e -> scope.launch { fileMessage = backupFileErrorText(e, reading = true) } },
+                )
+            },
+            onFailure = { e -> scope.launch { fileMessage = backupFileErrorText(e, reading = true) } },
+        )
+    }
+    val pickExportFile = rememberLiveTvBackupExporter(text = { exportBackupFileText() }) { result ->
+        scope.launch {
+            fileMessage = result.fold(
+                onSuccess = { written -> if (written) getString(Res.string.livetv_export_done) else fileMessage },
+                onFailure = { e -> backupFileErrorText(e, reading = false) },
+            )
+        }
+    }
+    fun importFile(text: String) {
+        fileBusy = true
+        fileMessage = null
+        scope.launch {
+            val result = withContext(Dispatchers.Default) { importBackupFile(text) }
+            fileMessage = result.fold(
+                onSuccess = { summary ->
+                    LiveTvDriveSync.backUpAfterImport()
+                    getString(Res.string.livetv_import_done, summary.playlistCount, summary.epgCount)
+                },
+                onFailure = { e -> backupFileErrorText(e, reading = true) },
+            )
+            fileBusy = false
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap)) {
         SettingsSection(title = stringResource(Res.string.livetv_section_playlists), isTablet = isTablet) {
@@ -626,7 +697,42 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
         }
 
-        SettingsSection(title = stringResource(Res.string.livetv_section_drive), isTablet = isTablet) {
+        SettingsSection(title = stringResource(Res.string.livetv_section_backup), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                Text(
+                    text = stringResource(Res.string.livetv_backup_file_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textMuted,
+                    modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12),
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_import_file),
+                    description = stringResource(Res.string.livetv_import_file_description),
+                    icon = Icons.Filled.FileDownload,
+                    isTablet = isTablet,
+                    enabled = !fileBusy && !drive.busy,
+                    trailingContent = { if (fileBusy) NuvioLoadingIndicator(size = NuvioTokens.Space.s20) },
+                    onClick = { pickImportFile() },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_export_file),
+                    description = stringResource(Res.string.livetv_export_file_description),
+                    icon = Icons.Filled.FileUpload,
+                    isTablet = isTablet,
+                    enabled = !fileBusy,
+                    onClick = { pickExportFile() },
+                )
+                fileMessage?.let {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, modifier = Modifier.padding(NuvioTokens.Space.s16))
+                }
+            }
+            NuvioSectionLabel(
+                text = stringResource(Res.string.livetv_drive_subsection),
+                modifier = Modifier.padding(horizontal = NuvioTokens.Radius.card).padding(top = NuvioTokens.Space.s16, bottom = NuvioTokens.Space.s10),
+            )
             SettingsGroup(isTablet = isTablet) {
                 when {
                     !drive.available -> Text(
@@ -826,6 +932,18 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             confirm = stringResource(Res.string.livetv_restore),
             onDismiss = close,
         ) { LiveTvDriveSync.restoreNow() }
+        is LiveDialog.ConfirmImportFile -> ConfirmDialog(
+            title = stringResource(Res.string.livetv_import_confirm_title),
+            message = stringResource(
+                Res.string.livetv_import_confirm_message,
+                d.info.device.ifBlank { stringResource(Res.string.livetv_import_unknown_device) },
+                if (d.info.savedAtMs > 0) formatLocalDateTime(d.info.savedAtMs) else stringResource(Res.string.livetv_import_unknown_date),
+                d.info.playlistCount,
+                d.info.epgCount,
+            ),
+            confirm = stringResource(Res.string.livetv_import_confirm_action),
+            onDismiss = close,
+        ) { importFile(d.text) }
         LiveDialog.ConfirmSignOut -> ConfirmDialog(
             title = stringResource(Res.string.livetv_drive_sign_out) + "?",
             message = stringResource(Res.string.livetv_drive_sign_out_description),
@@ -1097,4 +1215,18 @@ private fun LockedGroupsDialog(onDismiss: () -> Unit) {
         }
         DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = onDismiss) }
     }
+}
+
+/** A backup-file failure in plain words. [reading]: the file was being read or imported, not written. */
+private suspend fun backupFileErrorText(e: Throwable, reading: Boolean): String = when {
+    e is BackupFilePickerUnavailable -> getString(Res.string.livetv_file_error_unavailable)
+    e is BackupFileException -> when (e.reason) {
+        BackupFileException.Reason.NOT_JSON, BackupFileException.Reason.NOT_BACKUP -> getString(Res.string.livetv_file_error_not_backup)
+        BackupFileException.Reason.NEWER_FORMAT -> getString(Res.string.livetv_file_error_newer)
+        BackupFileException.Reason.NO_SOURCES -> getString(Res.string.livetv_file_error_no_sources)
+    }
+    !reading -> getString(Res.string.livetv_file_error_write)
+    e is IllegalArgumentException || e is IllegalStateException -> e.message?.takeIf { it.isNotBlank() }
+        ?.let { getString(Res.string.livetv_file_error_import, it) } ?: getString(Res.string.livetv_file_error_read)
+    else -> getString(Res.string.livetv_file_error_read)
 }
