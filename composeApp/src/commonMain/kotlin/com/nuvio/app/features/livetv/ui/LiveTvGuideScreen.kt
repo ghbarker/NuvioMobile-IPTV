@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,7 +112,8 @@ fun LiveTvGuideScreen(
         while (true) { value = LiveTvClock.nowMs(); delay(30_000) }
     }
     val sections = state.sections.filter { it.channels.isNotEmpty() }
-    var selectedGroupId by remember { mutableStateOf<String?>(null) }
+    // Saved, so backing out of a channel returns to the same group and spot in the guide.
+    var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = sections.firstOrNull { it.group.id == selectedGroupId } ?: sections.firstOrNull()
     val channels = if (selectedGroupId == ChannelGroup.ALL) state.visible else selected?.channels.orEmpty()
 
@@ -142,7 +144,9 @@ fun LiveTvGuideScreen(
             hScroll.animateScrollTo(target)
         }
     }
-    LaunchedEffect(Unit) { jumpToNow() }
+    // Jump to now only on first open; coming back from a channel keeps the guide where it was.
+    var jumpedToNow by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (!jumpedToNow) { jumpedToNow = true; jumpToNow() } }
 
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding()) {
         NuvioScreenHeader(
