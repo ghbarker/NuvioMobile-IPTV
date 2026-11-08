@@ -140,6 +140,9 @@ import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
+import com.nuvio.app.features.livetv.multiview.MultiviewScreen
+import com.nuvio.app.features.livetv.multiview.MultiviewSession
+import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.ui.LiveTvCloudSyncPrompts
 import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
 import com.nuvio.app.features.livetv.ui.OnDemandActions
@@ -341,7 +344,9 @@ internal fun MainAppContent(
     }.collectAsStateWithLifecycle()
     var visiblePlayerEntries by remember { mutableIntStateOf(0) }
     var streamLandscapeLoadingVisible by remember(currentRoute) { mutableStateOf(false) }
-    if (currentRoute is PlayerRoute || visiblePlayerEntries > 0 || streamLandscapeLoadingVisible) {
+    if (currentRoute is PlayerRoute || visiblePlayerEntries > 0 || streamLandscapeLoadingVisible ||
+        (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
+    ) {
         LockPlayerToLandscape()
         HidePlayerSystemBars()
     }
@@ -712,6 +717,7 @@ internal fun MainAppContent(
     var resumePromptItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var lastExternalPlayerLaunch by remember { mutableStateOf<PlayerLaunch?>(null) }
     val activePlaybackProfileId = profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId
+    val multiviewSession = remember(activePlaybackProfileId) { MultiviewSession(activePlaybackProfileId) }
     val launchExternalPlayer = rememberExternalPlayerLauncher { result ->
         if (result != null) {
             val fallbackSession = lastExternalPlayerLaunch?.externalPlaybackSession()
@@ -735,14 +741,17 @@ internal fun MainAppContent(
         if (!ownsAppRuntime) return@LaunchedEffect
         if (!initialHomeReady || profileSwitchLoading) return@LaunchedEffect
         if (resumePromptItem != null) return@LaunchedEffect
-        if (currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute) return@LaunchedEffect
+        if (currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute ||
+            (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
+        ) return@LaunchedEffect
         if (continueWatchingPreferencesUiState.showResumePromptOnLaunch) {
             resumePromptItem = ResumePromptRepository.consumeResumePrompt()
         }
     }
 
     LaunchedEffect(currentRoute) {
-        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute
+        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute ||
+            (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
         if (inPlaybackFlow) {
             resumePromptItem = null
         }
@@ -967,6 +976,7 @@ internal fun MainAppContent(
             onPlayCatchup = ::openLiveCatchup,
             onOpenGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) },
             onOpenLeague = { l -> navController.navigate(LiveTvSportsLeagueRoute(leagueId = l.id, title = l.name)) },
+            onOpenMultiview = { navController.navigate(LiveTvMultiviewRoute()) { launchSingleTop = true } },
         )
 
         // Live TV hook: a reminder or game notification was tapped.
@@ -1609,6 +1619,7 @@ internal fun MainAppContent(
                                 onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSportsClick = { navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) },
+                                onLiveTvMultiviewClick = { navController.navigate(LiveTvMultiviewRoute()) { launchSingleTop = true } },
                                 onLiveTvManageClick = { navController.navigate(LiveTvManageRoute(liveTvManageTitle)) },
                                 onLiveTvCalendarClick = { navController.navigate(LiveTvCalendarRoute(liveTvCalendarTitle)) },
                                 onLiveTvSettingsClick = {
@@ -1793,6 +1804,15 @@ internal fun MainAppContent(
                 entry<LiveTvSportsRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
                     SportsScreen(onBack = onBack, actions = sportsActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvMultiviewRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    MultiviewScreen(
+                        onBack = onBack,
+                        session = multiviewSession,
+                        active = currentRoute == route,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
                 entry<LiveTvSportsGameRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
