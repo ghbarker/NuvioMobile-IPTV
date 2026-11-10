@@ -233,7 +233,8 @@ object PlayerStreamsRepository {
         }
 
         val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
-        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
+        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh) +
+            if (isNativeServerRequest) emptyList() else com.nuvio.app.features.livetv.ondemand.OnDemandStreams.sources(type, videoId, null, season, episode)
         val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
         val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
         PlayerSettingsRepository.ensureLoaded()
