@@ -142,6 +142,8 @@ import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import com.nuvio.app.features.livetv.multiview.MultiviewScreen
 import com.nuvio.app.features.livetv.multiview.MultiviewSession
+import com.nuvio.app.features.livetv.multiview.LocalOpenSportsMultiview
+import com.nuvio.app.features.livetv.sports.SportsWatchController
 import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.ui.LiveTvCloudSyncPrompts
 import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
@@ -718,6 +720,7 @@ internal fun MainAppContent(
     var lastExternalPlayerLaunch by remember { mutableStateOf<PlayerLaunch?>(null) }
     val activePlaybackProfileId = profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId
     val multiviewSession = remember(activePlaybackProfileId) { MultiviewSession(activePlaybackProfileId) }
+    var sportsMultiviewSession by remember(activePlaybackProfileId) { mutableStateOf(MultiviewSession(activePlaybackProfileId)) }
     val launchExternalPlayer = rememberExternalPlayerLauncher { result ->
         if (result != null) {
             val fallbackSession = lastExternalPlayerLaunch?.externalPlaybackSession()
@@ -971,12 +974,25 @@ internal fun MainAppContent(
             }
         }
 
+        fun openSportsMultiview(channelKey: String? = null) {
+            if (!isMultiviewSupported) return
+            val watching = SportsWatchController(activePlaybackProfileId)
+            val seed = try { watching.seedChannel(channelKey) } finally { watching.close() }
+            sportsMultiviewSession = MultiviewSession(activePlaybackProfileId).also { session ->
+                if (seed != null) { session.assign(0, seed); session.focus(0) }
+            }
+            navController.navigate(LiveTvMultiviewRoute(sportsMode = true)) {
+                if (navController.currentRoute is PlayerRoute) popUpTo<PlayerRoute> { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+
         val sportsActions = SportsActions(
             onPlay = ::openLiveChannel,
             onPlayCatchup = ::openLiveCatchup,
             onOpenGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) },
             onOpenLeague = { l -> navController.navigate(LiveTvSportsLeagueRoute(leagueId = l.id, title = l.name)) },
-            onOpenMultiview = { navController.navigate(LiveTvMultiviewRoute()) { launchSingleTop = true } },
+            onOpenMultiview = { openSportsMultiview() },
         )
 
         // Live TV hook: a reminder or game notification was tapped.
@@ -1444,6 +1460,7 @@ internal fun MainAppContent(
             val drawsUnderVerticalBar = currentRoute.drawsUnderVerticalBar(selectedTab)
             SharedTransitionLayout {
                 CompositionLocalProvider(
+                    LocalOpenSportsMultiview provides ::openSportsMultiview,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
@@ -1809,8 +1826,9 @@ internal fun MainAppContent(
                     val onBack = rememberGuardedPopBackStack(navController, route)
                     MultiviewScreen(
                         onBack = onBack,
-                        session = multiviewSession,
-                        active = currentRoute == route,
+                        session = if (route.sportsMode) sportsMultiviewSession else multiviewSession,
+                        sportsMode = route.sportsMode,
+                        active = currentRoute == route && (!route.sportsMode || visiblePlayerEntries == 0),
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

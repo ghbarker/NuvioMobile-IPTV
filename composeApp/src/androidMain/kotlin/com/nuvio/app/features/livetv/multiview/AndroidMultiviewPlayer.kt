@@ -311,7 +311,7 @@ internal class AndroidMultiviewPlayer(
 }
 
 /** Native lifecycle callbacks may run before Compose refreshes a backgrounded selection. */
-private fun multiviewChannelPermissionGuard(): (LiveChannel) -> Boolean {
+internal fun multiviewChannelPermissionGuard(): (LiveChannel) -> Boolean {
     fun profileId() = ProfileRepository.state.value.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId
     val creatingProfile = profileId()
     return { selected ->

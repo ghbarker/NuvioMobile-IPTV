@@ -25,7 +25,7 @@ data class MultiviewTileState(
 )
 
 @Composable
-expect fun rememberMultiviewPlayer(): MultiviewPlayer
+expect fun rememberMultiviewPlayer(mayPlayChannel: ((LiveChannel) -> Boolean)? = null): MultiviewPlayer
 
 @Composable
 expect fun PlatformMultiviewSurface(player: MultiviewPlayer, modifier: Modifier = Modifier)

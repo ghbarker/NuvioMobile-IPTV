@@ -12,6 +12,8 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import com.nuvio.app.features.livetv.model.LiveChannel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -27,10 +29,14 @@ import androidx.media3.ui.AspectRatioFrameLayout
 actual val isMultiviewSupported: Boolean = true
 
 @Composable
-actual fun rememberMultiviewPlayer(): MultiviewPlayer {
+actual fun rememberMultiviewPlayer(mayPlayChannel: ((LiveChannel) -> Boolean)?): MultiviewPlayer {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember(context) { AndroidMultiviewPlayer(context) }
+    val currentGuard = rememberUpdatedState(mayPlayChannel)
+    val player = remember(context) {
+        val fallback = multiviewChannelPermissionGuard()
+        AndroidMultiviewPlayer(context) { channel -> currentGuard.value?.invoke(channel) ?: fallback(channel) }
+    }
     DisposableEffect(player, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {

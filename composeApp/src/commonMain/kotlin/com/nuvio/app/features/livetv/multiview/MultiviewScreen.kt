@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -44,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -71,6 +74,8 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.LiveTvRepository
@@ -78,9 +83,15 @@ import com.nuvio.app.features.livetv.data.VideoPlaying
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.sports.ChannelPickerSearchResult
 import com.nuvio.app.features.livetv.sports.channelPickerSearchResults
+import com.nuvio.app.features.livetv.sports.SportsSettings
+import com.nuvio.app.features.livetv.sports.SportsWatchController
+import com.nuvio.app.features.livetv.sports.SportsWatchGame
+import com.nuvio.app.features.livetv.sports.SportsWatchRow
 import com.nuvio.app.features.livetv.ui.LiveTvViewState
 import com.nuvio.app.features.livetv.ui.liveTvSideInsets
+import com.nuvio.app.features.livetv.ui.sports.MobileSportsGameStrip
 import com.nuvio.app.features.profiles.ProfileRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
 fun MultiviewScreen(
@@ -88,6 +99,7 @@ fun MultiviewScreen(
     session: MultiviewSession,
     modifier: Modifier = Modifier,
     active: Boolean = true,
+    sportsMode: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
     if (!isMultiviewSupported) {
@@ -98,6 +110,16 @@ fun MultiviewScreen(
         return
     }
     val selection by session.selection.collectAsStateWithLifecycle()
+    val sports = remember(session, sportsMode) { if (sportsMode) SportsWatchController(session.profileId) else null }
+    DisposableEffect(sports) { onDispose { sports?.close() } }
+    val noGames = remember { MutableStateFlow(emptyList<SportsWatchGame>()) }
+    val noRows = remember { MutableStateFlow(emptyList<SportsWatchRow>()) }
+    val noChannels = remember { MutableStateFlow(emptyList<LiveChannel>()) }
+    val defaultSportsSettings = remember { MutableStateFlow(SportsSettings()) }
+    val sportsGames by (sports?.games ?: noGames).collectAsStateWithLifecycle()
+    val sportsRows by (sports?.rows ?: noRows).collectAsStateWithLifecycle()
+    val sportsChannels by (sports?.allowedChannels ?: noChannels).collectAsStateWithLifecycle()
+    val sportsSettings by (sports?.settings ?: defaultSportsSettings).collectAsStateWithLifecycle()
     val listFlow = remember { LiveTvRepository.ensureLoaded(); LiveTvViewState.list }
     val collectedList by listFlow.collectAsStateWithLifecycle()
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
@@ -105,7 +127,15 @@ fun MultiviewScreen(
     // filtered value before recreating native connections or displaying stale picker rows.
     val list = if (lifecycleState.isAtLeast(Lifecycle.State.RESUMED)) listFlow.value else collectedList
     // This is the same filtered list used by Live TV search: hidden and locked content is absent.
-    val allowed = remember(list.visible) { list.visible.associateBy { it.key } }
+    val allowed = remember(list.visible, sportsChannels, sports, selection.channels) {
+        if (sports == null) list.visible.associateBy { it.key }
+        else {
+            // A freshly seeded channel is checked synchronously while the eager permission
+            // projection catches up; an empty first flow emission must not discard that seed.
+            val current = sportsChannels.associateBy { it.key }
+            current + selection.channels.filterNotNull().filter { it.key !in current && sports.mayPlay(it) }.associateBy { it.key }
+        }
+    }
     val permittedSelection = remember(selection, allowed) { selection.retainAllowed(allowed) }
     LaunchedEffect(session, allowed) { session.retainAllowed(allowed) }
     fun profileIsCurrent(): Boolean = session.isForProfile(
@@ -114,9 +144,22 @@ fun MultiviewScreen(
     val playbackActive = active && LocalScreenActive.current && profileIsCurrent() && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     val audio = remember(session) { MultiviewAudioCoordinator() }
     var editingPane by remember(session) { mutableStateOf<Int?>(null) }
+    var sportsControlsOpen by remember(session) { mutableStateOf(sportsMode) }
+    var sportsTargetPane by remember(session) {
+        mutableIntStateOf((0 until selection.layout.paneCount).firstOrNull { selection.channels[it] == null }
+            ?: selection.focusedPane ?: 0)
+    }
+    val sportsEvents = remember(session) { mutableStateMapOf<Int, String>() }
+    val playerPermission = remember(sports) { sports?.let { watch -> { channel: LiveChannel -> watch.mayPlay(channel) } } }
 
-    LaunchedEffect(audio, playbackActive, permittedSelection.focusedPane) {
-        audio.focus(permittedSelection.focusedPane.takeIf { playbackActive })
+    fun openSportsPane(pane: Int) {
+        sportsTargetPane = pane
+        sportsControlsOpen = true
+    }
+    PlatformBackHandler(enabled = sportsMode && sportsControlsOpen) { sportsControlsOpen = false }
+
+    LaunchedEffect(audio, playbackActive, permittedSelection.focusedOwnerId) {
+        audio.focus(permittedSelection.focusedOwnerId.takeIf { playbackActive })
     }
     if (playbackActive) {
         DisposableEffect(audio) {
@@ -133,45 +176,102 @@ fun MultiviewScreen(
             .liveTvSideInsets().padding(bottom = nuvioSafeBottomPadding()),
     ) {
         NuvioScreenHeader(
-            title = "Multiview",
+            title = if (sportsMode) "Sports Multiview" else "Multiview",
             onBack = onBack,
             includeStatusBarPadding = false,
             actions = {
-                IconButton(onClick = { editingPane = permittedSelection.focusedPane ?: 0 }) {
+                IconButton(onClick = {
+                    if (sportsMode) sportsControlsOpen = true else editingPane = permittedSelection.focusedPane ?: 0
+                }) {
                     Icon(Icons.Filled.Tune, contentDescription = "Edit streams and layout", tint = tokens.colors.textPrimary)
                 }
             },
         )
         Text(
-            "Tap a video to hear it. Hold a pane to change its channel.",
+            if (sportsMode) "Tap a pane, choose a game, then choose a stream."
+            else "Tap a video to hear it. Hold a pane to change its channel.",
             style = MaterialTheme.typography.bodySmall,
             color = tokens.colors.textMuted,
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s4),
         )
-        Column(
-            Modifier.weight(1f).fillMaxWidth().padding(NuvioTokens.Space.s8),
-            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
-        ) {
-            permittedSelection.layout.rows.forEach { row ->
-                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                    row.forEach { pane ->
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            BoxWithConstraints(Modifier.fillMaxSize().padding(NuvioTokens.Space.s4)) {
+                val layoutRows = permittedSelection.layout.rows
+                for (pane in 0 until permittedSelection.layout.paneCount) {
+                    val rowIndex = layoutRows.indexOfFirst { pane in it }
+                    val row = layoutRows[rowIndex]
+                    val columnIndex = row.indexOf(pane)
+                    val paneWidth = maxWidth / row.size
+                    val paneHeight = maxHeight / layoutRows.size
+                    key(permittedSelection.paneIds[pane]) {
                         val channel = permittedSelection.channels[pane]
                         MultiviewPane(
+                            ownerId = permittedSelection.paneIds[pane],
                             pane = pane,
                             channel = channel,
                             focused = permittedSelection.focusedPane == pane,
                             playbackActive = playbackActive,
                             audio = audio,
+                            mayPlayChannel = playerPermission,
                             onFocus = {
-                                session.focus(pane)
-                                // Re-selecting the same pane must retry a lost system audio focus.
-                                audio.focus(pane)
+                                if (sportsMode) openSportsPane(pane) else {
+                                    session.focus(pane)
+                                    // Re-selecting the same pane retries lost system audio focus.
+                                    audio.focus(permittedSelection.paneIds[pane])
+                                }
                             },
-                            onEdit = { editingPane = pane },
-                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            onEdit = { if (sportsMode) openSportsPane(pane) else editingPane = pane },
+                            modifier = Modifier.offset(x = paneWidth * columnIndex, y = paneHeight * rowIndex)
+                                .width(paneWidth).height(paneHeight).padding(NuvioTokens.Space.s4),
                         )
                     }
                 }
+            }
+            if (sportsMode && sportsControlsOpen && sports != null) {
+            val target = sportsTargetPane.coerceIn(0, permittedSelection.layout.paneCount - 1)
+            MobileSportsGameStrip(
+                games = sportsGames,
+                rows = sportsRows,
+                selectedEventId = sportsEvents[target] ?: sportsGames.firstOrNull { game ->
+                    game.channels.any { it.channel.key == permittedSelection.channels[target]?.key }
+                }?.event?.id,
+                paneChannelKeys = permittedSelection.channels.take(permittedSelection.layout.paneCount).map { it?.key },
+                focusedPane = target,
+                paneCount = permittedSelection.layout.paneCount,
+                hideScores = sportsSettings.hideScores,
+                onGame = { game -> sports.openGame(game.event.id) },
+                onStream = { game, channelKey ->
+                    val pane = target
+                    val current = sports.resolve(game.event.id, channelKey)
+                    if (profileIsCurrent() && current != null) {
+                        sportsEvents[pane] = game.event.id
+                        session.assign(pane, current.channel)
+                        session.focus(pane)
+                        audio.focus(session.selection.value.paneIds[pane])
+                    } else NuvioToastController.show("This broadcast is no longer available.")
+                },
+                onAdd = {
+                    val count = session.selection.value.layout.paneCount
+                    if (count < 4) {
+                        session.setLayout(MultiviewLayout.entries.first { it.paneCount == count + 1 })
+                        sportsTargetPane = count
+                    }
+                },
+                onRemove = {
+                    val count = session.selection.value.layout.paneCount
+                    if (count > 1) {
+                        val remaining = sportsEvents.entries.filter { it.key in 0 until count && it.key != target }
+                            .associate { (pane, eventId) -> (if (pane > target) pane - 1 else pane) to eventId }
+                        sportsEvents.clear()
+                        sportsEvents.putAll(remaining)
+                        session.removePane(target)
+                        sportsTargetPane = target.coerceAtMost(count - 2)
+                    }
+                },
+                onPane = ::openSportsPane,
+                onClose = { sportsControlsOpen = false },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
             }
         }
     }
@@ -198,36 +298,41 @@ fun MultiviewScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MultiviewPane(
+    ownerId: Int,
     pane: Int,
     channel: LiveChannel?,
     focused: Boolean,
     playbackActive: Boolean,
     audio: MultiviewAudioCoordinator,
+    mayPlayChannel: ((LiveChannel) -> Boolean)?,
     onFocus: () -> Unit,
     onEdit: () -> Unit,
     modifier: Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    var attempt by remember(pane, channel) { mutableIntStateOf(0) }
+    var attempt by remember(ownerId, channel) { mutableIntStateOf(0) }
     Box(
         modifier.clip(tokens.shapes.compactCard).background(tokens.colors.surfaceCard)
             .border(if (focused) 2.dp else 1.dp, if (focused) tokens.colors.accent else tokens.colors.borderDefault, tokens.shapes.compactCard),
     ) {
         if (channel != null && playbackActive) {
             // A replacement gets a new native owner; disposing the old pane closes its connection.
-            key(pane, channel, attempt) {
-                val player = rememberMultiviewPlayer()
+            key(ownerId, channel, attempt) {
+                val player = rememberMultiviewPlayer(mayPlayChannel)
                 val state by player.state.collectAsStateWithLifecycle()
                 PlatformMultiviewSurface(player, Modifier.fillMaxSize())
-                DisposableEffect(player, channel, audio) {
+                DisposableEffect(player, channel) {
                     player.setMuted(true)
                     player.play(channel)
-                    audio.register(pane, player)
                     onDispose {
-                        audio.unregister(pane, player)
                         player.setPaused(true)
                         player.release()
                     }
+                }
+                // Sound follows the native owner when its visible slot is compacted.
+                DisposableEffect(player, audio, ownerId) {
+                    audio.register(ownerId, player)
+                    onDispose { audio.unregister(ownerId, player) }
                 }
                 if (state.isLoading) NuvioLoadingIndicator(modifier = Modifier.align(Alignment.Center))
                 if (state.error != null) {
@@ -401,7 +506,7 @@ private fun MultiviewPickerControls(
     val tokens = MaterialTheme.nuvio
     val layouts: @Composable () -> Unit = {
         Text("Layout", style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
-        MultiviewLayout.entries.forEach { layout ->
+        MultiviewLayout.entries.filter { it.paneCount > 1 }.forEach { layout ->
             Chip(layout.title, selected = selection.layout == layout, onClick = { onLayout(layout) })
         }
     }

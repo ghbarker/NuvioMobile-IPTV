@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 actual val isMultiviewSupported: Boolean = false
 
 @Composable
-actual fun rememberMultiviewPlayer(): MultiviewPlayer = remember { UnsupportedIosMultiviewPlayer() }
+actual fun rememberMultiviewPlayer(mayPlayChannel: ((LiveChannel) -> Boolean)?): MultiviewPlayer = remember { UnsupportedIosMultiviewPlayer() }
 
 @Composable
 actual fun PlatformMultiviewSurface(player: MultiviewPlayer, modifier: Modifier) = Unit
