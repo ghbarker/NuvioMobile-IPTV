@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_settings_calendar_upcoming">Upcoming row on Home</string>
+    <string name="livetv_settings_calendar_upcoming_description">Your shows' next episodes in Home's Upcoming row.</string>
+    <string name="livetv_settings_calendar_new_episodes">New episode cards on Home</string>
+    <string name="livetv_settings_calendar_new_episodes_description">A card in Continue Watching when a followed show has a new episode out.</string>
+    <string name="livetv_settings_calendar_hide_spoilers">Hide spoilers</string>
+    <string name="livetv_settings_calendar_hide_spoilers_description">Hide titles and pictures of episodes you haven't reached yet.</string>
+    <string name="livetv_settings_calendar_games">Games on the Calendar</string>
+    <string name="livetv_settings_calendar_games_description">Games for the teams you follow in Sports.</string>
+    <string name="livetv_settings_calendar_saved_channels">Calendar saved channels</string>
+    <string name="livetv_settings_calendar_nothing_saved">Nothing saved yet</string>
+    <string name="livetv_settings_calendar_nothing_saved_description">On the Calendar, open an episode, choose the channel, then pick Always use.</string>
+    <string name="livetv_settings_calendar_forget_show">%1$s (this show) - tap to forget</string>
+    <string name="livetv_settings_calendar_forget_network">%1$s (this network) - tap to forget</string>
+    <string name="livetv_settings_none">None</string>
+    <string name="livetv_settings_auto">Auto</string>
+    <string name="livetv_settings_off">Off</string>
+    <string name="livetv_settings_connected">Connected</string>
+    <string name="livetv_settings_expired">Expired</string>
+    <string name="livetv_settings_expires_today">Expires today</string>
+    <string name="livetv_settings_playlist_name">Playlist</string>
+    <string name="livetv_settings_scores">Scores</string>
+    <string name="livetv_settings_delete_source">Delete "%1$s"?</string>
+    <string name="livetv_settings_restore_confirm">Restore from Google Drive?</string>
+    <string name="livetv_settings_sign_out_confirm">Sign out?</string>
+    <string name="livetv_settings_offset_hours">%1$s%2$d h</string>
+    <string name="livetv_settings_offset_hours_minutes">%1$s%2$d h %3$d min</string>
+    <string name="livetv_settings_zone_utc">UTC</string>
+    <string name="livetv_settings_zone_london">UK &amp; Ireland (London)</string>
+    <string name="livetv_settings_zone_amsterdam">Central Europe (Amsterdam, Paris, Berlin)</string>
+    <string name="livetv_settings_zone_athens">Eastern Europe (Athens, Bucharest)</string>
+    <string name="livetv_settings_zone_istanbul">Turkey (Istanbul)</string>
+    <string name="livetv_settings_zone_moscow">Moscow</string>
+    <string name="livetv_settings_zone_dubai">Gulf (Dubai)</string>
+    <string name="livetv_settings_zone_kolkata">India</string>
+    <string name="livetv_settings_zone_new_york">US Eastern (New York)</string>
+    <string name="livetv_settings_zone_chicago">US Central (Chicago)</string>
+    <string name="livetv_settings_zone_denver">US Mountain (Denver)</string>
+    <string name="livetv_settings_zone_los_angeles">US Pacific (Los Angeles)</string>
+    <plurals name="livetv_settings_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <plurals name="livetv_settings_hours">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
+    <plurals name="livetv_settings_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="livetv_settings_expires_days">
+        <item quantity="one">Expires in %1$d day</item>
+        <item quantity="other">Expires in %1$d days</item>
+    </plurals>
+    <plurals name="livetv_settings_channels">
+        <item quantity="one">%1$d channel</item>
+        <item quantity="other">%1$d channels</item>
+    </plurals>
+    <plurals name="livetv_settings_connections">
+        <item quantity="one">%1$d/%2$d connection</item>
+        <item quantity="other">%1$d/%2$d connections</item>
+    </plurals>
+    <plurals name="livetv_settings_minutes_before">
+        <item quantity="one">%1$d minute before</item>
+        <item quantity="other">%1$d minutes before</item>
+    </plurals>
+    <string name="livetv_settings_sync_title">Setup Sync</string>
+    <string name="livetv_settings_sync_unavailable">Setup Sync works with the official Nuvio sign-in.</string>
+    <string name="livetv_settings_sync_sign_in">Sign in with your Nuvio account to keep your Live TV setup the same on all your devices.</string>
+    <string name="livetv_settings_sync_description">Keeps your playlists and settings the same on every device you sign in on.</string>
+    <string name="livetv_settings_sync_turn_on">Turn On</string>
+    <string name="livetv_settings_sync_on">On</string>
+    <string name="livetv_settings_sync_last_synced">last synced %1$s</string>
+    <string name="livetv_settings_sync_parts">What to sync</string>
+    <string name="livetv_settings_sync_now">Sync Now</string>
+    <string name="livetv_settings_sync_now_description">Check for changes from your other devices</string>
+    <string name="livetv_settings_sync_restore">Restore Earlier Copy</string>
+    <string name="livetv_settings_sync_restore_description">Go back to the copy saved before the last change</string>
+    <string name="livetv_settings_sync_off">Turn Off Setup Sync</string>
+    <string name="livetv_settings_sync_off_description">Stop syncing here. Your saved copy stays saved</string>
+    <string name="livetv_settings_sync_delete">Delete Saved Setup</string>
+    <string name="livetv_settings_sync_delete_description">Remove the saved copy. This device keeps its setup</string>
+    <string name="livetv_settings_sync_off_confirm">Turn off Setup Sync?</string>
+    <string name="livetv_settings_sync_off_message">This device stops syncing. Your saved copy stays saved.</string>
+    <string name="livetv_settings_sync_delete_confirm">Delete the saved setup?</string>
+    <string name="livetv_settings_sync_delete_message">The saved copy is removed and sync turns off here. This device keeps its own setup.</string>
+    <string name="livetv_settings_sync_restore_confirm">Restore the earlier copy?</string>
+    <string name="livetv_settings_sync_restore_message">This replaces the setup on this device and the saved copy with the one saved before the last change.</string>
+    <string name="livetv_settings_sync_save_title">Save your Live TV setup?</string>
+    <string name="livetv_settings_sync_save_message">Save your playlists, guides, favorites and Sports and Calendar choices so they follow you to your other devices. Your IPTV logins are included, kept encrypted. This phone keeps its own look and layout. In Live TV settings (Setup Sync) you can change what's synced, turn it off or delete the saved copy any time.</string>
+    <string name="livetv_settings_sync_not_now">Not Now</string>
+    <string name="livetv_settings_sync_save_action">Save My Setup</string>
+    <string name="livetv_settings_sync_choose_title">You have a saved Live TV setup</string>
+    <string name="livetv_settings_sync_choose_message">This device has a different setup. Combine keeps playlists and guides from both. Use the Saved Setup replaces this device's setup with the saved one.</string>
+    <string name="livetv_settings_sync_use_saved">Use the Saved Setup</string>
+    <string name="livetv_settings_sync_combine">Combine Both</string>
+    <string name="livetv_settings_sync_logins">Playlists and logins</string>
+    <string name="livetv_settings_sync_logins_description">Your IPTV links, usernames and passwords. Stored encrypted.</string>
+    <string name="livetv_settings_sync_favorites">Favorites and groups</string>
+    <string name="livetv_settings_sync_favorites_description">Favorite channels, hidden channels and group order.</string>
+    <string name="livetv_settings_sync_sports_description">Followed teams and leagues, and Choose leagues.</string>
+    <string name="livetv_settings_sync_calendar_description">Followed and hidden shows.</string>
+    <string name="livetv_settings_sync_look">Look and layout</string>
+    <string name="livetv_settings_sync_look_description">Themes, menu, card styles and other options.</string>
+    <string name="livetv_settings_vod_sort_default">Provider's order</string>
+    <string name="livetv_settings_vod_sort_name_az">A–Z</string>
+    <string name="livetv_settings_vod_sort_name_za">Z–A</string>
+    <string name="livetv_settings_vod_sort_newest">Newest release</string>
+    <string name="livetv_settings_vod_sort_oldest">Oldest release</string>
+    <string name="livetv_settings_vod_sort_recently_added">Recently added</string>
+    <string name="livetv_settings_vod_sort_rating">Highest rated</string>
+</resources>

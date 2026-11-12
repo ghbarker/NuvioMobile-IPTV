@@ -238,7 +238,6 @@ import nuvio.composeapp.generated.resources.livetv_reminders_none
 import nuvio.composeapp.generated.resources.livetv_reminder_lead
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_description
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
-import nuvio.composeapp.generated.resources.livetv_reminder_lead_minutes
 import nuvio.composeapp.generated.resources.livetv_continue_watching
 import nuvio.composeapp.generated.resources.livetv_continue_watching_description
 import com.nuvio.app.features.livetv.reminders.LiveTvReminders
@@ -282,6 +281,61 @@ import nuvio.composeapp.generated.resources.livetv_update_all
 import nuvio.composeapp.generated.resources.livetv_update_all_description
 import nuvio.composeapp.generated.resources.livetv_update_now
 import nuvio.composeapp.generated.resources.livetv_updated_at
+import nuvio.composeapp.generated.resources.livetv_calendar
+import nuvio.composeapp.generated.resources.livetv_settings_auto
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_forget_network
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_forget_show
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_games
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_games_description
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_hide_spoilers
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_hide_spoilers_description
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_new_episodes
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_new_episodes_description
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_nothing_saved
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_nothing_saved_description
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_saved_channels
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_upcoming
+import nuvio.composeapp.generated.resources.livetv_settings_calendar_upcoming_description
+import nuvio.composeapp.generated.resources.livetv_settings_channels
+import nuvio.composeapp.generated.resources.livetv_settings_connected
+import nuvio.composeapp.generated.resources.livetv_settings_connections
+import nuvio.composeapp.generated.resources.livetv_settings_days
+import nuvio.composeapp.generated.resources.livetv_settings_delete_source
+import nuvio.composeapp.generated.resources.livetv_settings_expired
+import nuvio.composeapp.generated.resources.livetv_settings_expires_days
+import nuvio.composeapp.generated.resources.livetv_settings_expires_today
+import nuvio.composeapp.generated.resources.livetv_settings_hours
+import nuvio.composeapp.generated.resources.livetv_settings_minutes
+import nuvio.composeapp.generated.resources.livetv_settings_none
+import nuvio.composeapp.generated.resources.livetv_settings_off
+import nuvio.composeapp.generated.resources.livetv_settings_offset_hours
+import nuvio.composeapp.generated.resources.livetv_settings_offset_hours_minutes
+import nuvio.composeapp.generated.resources.livetv_settings_playlist_name
+import nuvio.composeapp.generated.resources.livetv_settings_restore_confirm
+import nuvio.composeapp.generated.resources.livetv_settings_sign_out_confirm
+import nuvio.composeapp.generated.resources.livetv_settings_zone_amsterdam
+import nuvio.composeapp.generated.resources.livetv_settings_zone_athens
+import nuvio.composeapp.generated.resources.livetv_settings_zone_chicago
+import nuvio.composeapp.generated.resources.livetv_settings_zone_denver
+import nuvio.composeapp.generated.resources.livetv_settings_zone_dubai
+import nuvio.composeapp.generated.resources.livetv_settings_zone_istanbul
+import nuvio.composeapp.generated.resources.livetv_settings_zone_kolkata
+import nuvio.composeapp.generated.resources.livetv_settings_zone_london
+import nuvio.composeapp.generated.resources.livetv_settings_zone_los_angeles
+import nuvio.composeapp.generated.resources.livetv_settings_zone_moscow
+import nuvio.composeapp.generated.resources.livetv_settings_zone_new_york
+import nuvio.composeapp.generated.resources.livetv_settings_zone_utc
+import nuvio.composeapp.generated.resources.livetv_vod_movies
+import nuvio.composeapp.generated.resources.livetv_vod_series
+import nuvio.composeapp.generated.resources.livetv_settings_minutes_before
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_default
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_name_az
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_name_za
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_newest
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_oldest
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_rating
+import nuvio.composeapp.generated.resources.livetv_settings_vod_sort_recently_added
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.material.icons.filled.FileDownload
@@ -291,33 +345,34 @@ private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
 private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168)
 
-private fun pastHoursLabel(h: Int): String = when {
-    h == 1 -> "1 hour"
-    h < 24 -> "$h hours"
-    h == 24 -> "1 day"
-    else -> "${h / 24} days"
+@Composable
+private fun pastHoursLabel(h: Int): String = if (h < 24) {
+    pluralStringResource(Res.plurals.livetv_settings_hours, h, h)
+} else {
+    daysLabel(h / 24)
 }
 /** Time shifts in minutes, half an hour apart, a day either way (the TV app's choices). */
 private val EPG_OFFSETS = (-24..24).map { it * 30 }
 
 /** Time zones offered for a playlist's catch-up (the common ones IPTV servers run on), as on the TV app. */
 private val CATCHUP_ZONES = listOf(
-    "UTC" to "UTC",
-    "Europe/London" to "UK & Ireland (London)",
-    "Europe/Amsterdam" to "Central Europe (Amsterdam, Paris, Berlin)",
-    "Europe/Athens" to "Eastern Europe (Athens, Bucharest)",
-    "Europe/Istanbul" to "Turkey (Istanbul)",
-    "Europe/Moscow" to "Moscow",
-    "Asia/Dubai" to "Gulf (Dubai)",
-    "Asia/Kolkata" to "India",
-    "America/New_York" to "US Eastern (New York)",
-    "America/Chicago" to "US Central (Chicago)",
-    "America/Denver" to "US Mountain (Denver)",
-    "America/Los_Angeles" to "US Pacific (Los Angeles)",
+    "UTC" to Res.string.livetv_settings_zone_utc,
+    "Europe/London" to Res.string.livetv_settings_zone_london,
+    "Europe/Amsterdam" to Res.string.livetv_settings_zone_amsterdam,
+    "Europe/Athens" to Res.string.livetv_settings_zone_athens,
+    "Europe/Istanbul" to Res.string.livetv_settings_zone_istanbul,
+    "Europe/Moscow" to Res.string.livetv_settings_zone_moscow,
+    "Asia/Dubai" to Res.string.livetv_settings_zone_dubai,
+    "Asia/Kolkata" to Res.string.livetv_settings_zone_kolkata,
+    "America/New_York" to Res.string.livetv_settings_zone_new_york,
+    "America/Chicago" to Res.string.livetv_settings_zone_chicago,
+    "America/Denver" to Res.string.livetv_settings_zone_denver,
+    "America/Los_Angeles" to Res.string.livetv_settings_zone_los_angeles,
 )
 
 /** A zone id in words: one of the list's names, else as found (e.g. "GMT+01:00"). */
-private fun zoneName(id: String): String = CATCHUP_ZONES.firstOrNull { it.first == id }?.second ?: id
+@Composable
+private fun zoneName(id: String): String = CATCHUP_ZONES.firstOrNull { it.first == id }?.second?.let { stringResource(it) } ?: id
 
 /** The time on that zone's clock now, to match against the provider's. */
 private fun zoneClock(id: String): String {
@@ -336,17 +391,23 @@ private val KEEP_COUNTS = listOf(0, 1, 2, 3, 5, 10, 20)
 private val REMINDER_LEADS = listOf(0, 1, 2, 5, 10, 15, 30)
 
 /** "+1 h", "−1 h 30 min" or [none] for 0. */
+@Composable
 internal fun offsetLabel(min: Int, none: String): String {
     if (min == 0) return none
     val sign = if (min > 0) "+" else "−"
     val a = kotlin.math.abs(min)
-    return if (a % 60 == 0) "$sign${a / 60} h" else "$sign${a / 60} h ${a % 60} min"
+    return if (a % 60 == 0) stringResource(Res.string.livetv_settings_offset_hours, sign, a / 60)
+    else stringResource(Res.string.livetv_settings_offset_hours_minutes, sign, a / 60, a % 60)
 }
 
+@Composable
 internal fun hoursLabel(h: Int): String = when {
-    h >= 24 && h % 24 == 0 -> if (h == 24) "1 day" else "${h / 24} days"
-    else -> "$h hours"
+    h >= 24 && h % 24 == 0 -> daysLabel(h / 24)
+    else -> pluralStringResource(Res.plurals.livetv_settings_hours, h, h)
 }
+
+@Composable
+private fun daysLabel(days: Int): String = pluralStringResource(Res.plurals.livetv_settings_days, days, days)
 
 private sealed interface LiveDialog {
     data object AddM3u : LiveDialog
@@ -512,7 +573,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     title = stringResource(Res.string.livetv_days_ahead),
                     description = stringResource(Res.string.livetv_days_ahead_description),
                     isTablet = isTablet,
-                    trailingContent = { ValueLabel(if (settings.epgFutureDays == 1) "1 day" else "${settings.epgFutureDays} days") },
+                    trailingContent = { ValueLabel(daysLabel(settings.epgFutureDays)) },
                     onClick = { dialog = LiveDialog.FutureDays },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
@@ -705,7 +766,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     title = stringResource(Res.string.livetv_vod_default_sort),
                     description = stringResource(Res.string.livetv_vod_default_sort_description),
                     isTablet = isTablet,
-                    trailingContent = { ValueLabel((VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT).label) },
+                    trailingContent = { ValueLabel(vodSortLabel(VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT)) },
                     onClick = { dialog = LiveDialog.VodDefaultSort },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
@@ -816,32 +877,32 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
         }
 
-        SettingsSection(title = "Calendar", isTablet = isTablet) {
+        SettingsSection(title = stringResource(Res.string.livetv_calendar), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 SettingsSwitchRow(
-                    title = "Upcoming row on Home",
-                    description = "Your shows' next episodes in Home's Upcoming row.",
+                    title = stringResource(Res.string.livetv_settings_calendar_upcoming),
+                    description = stringResource(Res.string.livetv_settings_calendar_upcoming_description),
                     checked = settings.calendarUpcomingRow, isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(calendarUpcomingRow = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
-                    title = "New episode cards on Home",
-                    description = "A card in Continue Watching when a followed show has a new episode out.",
+                    title = stringResource(Res.string.livetv_settings_calendar_new_episodes),
+                    description = stringResource(Res.string.livetv_settings_calendar_new_episodes_description),
                     checked = settings.calendarNewEpisodeCards, isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(calendarNewEpisodeCards = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
-                    title = "Hide spoilers",
-                    description = "Hide titles and pictures of episodes you haven't reached yet.",
+                    title = stringResource(Res.string.livetv_settings_calendar_hide_spoilers),
+                    description = stringResource(Res.string.livetv_settings_calendar_hide_spoilers_description),
                     checked = settings.calendarHideSpoilers, isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(calendarHideSpoilers = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
-                    title = "Games on the Calendar",
-                    description = "Games for the teams you follow in Sports.",
+                    title = stringResource(Res.string.livetv_settings_calendar_games),
+                    description = stringResource(Res.string.livetv_settings_calendar_games_description),
                     checked = settings.calendarSports, isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(calendarSports = on) } },
                 )
@@ -852,12 +913,12 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             val picks by CalendarRepository.channelPicks.collectAsStateWithLifecycle()
             val channelCount by LiveTvRepository.channels.collectAsStateWithLifecycle()
             val savedList = remember(picks, channelCount) { CalendarRepository.savedChannels() }
-            SettingsSection(title = "Calendar saved channels", isTablet = isTablet) {
+            SettingsSection(title = stringResource(Res.string.livetv_settings_calendar_saved_channels), isTablet = isTablet) {
                 SettingsGroup(isTablet = isTablet) {
                     if (savedList.isEmpty()) {
                         SettingsNavigationRow(
-                            title = "Nothing saved yet",
-                            description = "On the Calendar, open an episode, choose the channel, then pick Always use.",
+                            title = stringResource(Res.string.livetv_settings_calendar_nothing_saved),
+                            description = stringResource(Res.string.livetv_settings_calendar_nothing_saved_description),
                             isTablet = isTablet, onClick = {},
                         )
                     }
@@ -865,7 +926,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                         if (i > 0) SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(
                             title = sc.label,
-                            description = sc.channel + (if (sc.forShow) " (this show)" else " (this network)") + " - tap to forget",
+                            description = stringResource(if (sc.forShow) Res.string.livetv_settings_calendar_forget_show else Res.string.livetv_settings_calendar_forget_network, sc.channel),
                             isTablet = isTablet,
                             onClick = { CalendarRepository.forgetSaved(sc.pickKey) },
                         )
@@ -1021,7 +1082,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     else -> {
                         SettingsNavigationRow(
                             title = stringResource(Res.string.livetv_drive_account),
-                            description = (drive.email ?: "Connected") + (drive.lastSyncMs.takeIf { it > 0 }?.let { " · " + formatLocalDateTime(it) } ?: ""),
+                            description = (drive.email ?: stringResource(Res.string.livetv_settings_connected)) + (drive.lastSyncMs.takeIf { it > 0 }?.let { " · " + formatLocalDateTime(it) } ?: ""),
                             icon = Icons.Filled.Backup,
                             isTablet = isTablet,
                             onClick = {},
@@ -1115,7 +1176,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             ChoiceDialog(
                 title = stringResource(Res.string.livetv_catchup_zone),
                 message = stringResource(Res.string.livetv_catchup_zone_description, d.source.name),
-                options = listOf("" to automatic) + CATCHUP_ZONES.map { (id, name) -> id to "$name · ${zoneClock(id)}" },
+                options = listOf("" to automatic) + CATCHUP_ZONES.map { (id, name) -> id to "${stringResource(name)} · ${zoneClock(id)}" },
                 selected = d.source.catchupTimezone,
                 onDismiss = close,
             ) { v -> LiveTvRepository.setPlaylistCatchupZone(d.source.id, v) }
@@ -1167,14 +1228,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             ),
         )
         is LiveDialog.DeletePlaylist -> ConfirmDialog(
-            title = stringResource(Res.string.action_delete) + " \"${d.source.name}\"?",
+            title = stringResource(Res.string.livetv_settings_delete_source, d.source.name),
             message = stringResource(Res.string.livetv_delete_source_message),
             confirm = stringResource(Res.string.action_delete),
             destructive = true,
             onDismiss = close,
         ) { LiveTvRepository.removePlaylist(d.source.id) }
         is LiveDialog.DeleteEpg -> ConfirmDialog(
-            title = stringResource(Res.string.action_delete) + " \"${d.source.name}\"?",
+            title = stringResource(Res.string.livetv_settings_delete_source, d.source.name),
             message = stringResource(Res.string.livetv_delete_source_message),
             confirm = stringResource(Res.string.action_delete),
             destructive = true,
@@ -1194,7 +1255,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         ) { v -> update { it.copy(epgRefreshHours = v) } }
         LiveDialog.FutureDays -> ChoiceDialog(
             title = stringResource(Res.string.livetv_days_ahead),
-            options = FUTURE_DAYS.map { it to if (it == 1) "1 day" else "$it days" },
+            options = FUTURE_DAYS.map { it to daysLabel(it) },
             selected = settings.epgFutureDays,
             onDismiss = close,
         ) { v -> update { it.copy(epgFutureDays = v) }; LiveTvRepository.refreshEpgOnly() }
@@ -1206,7 +1267,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         ) { v -> update { it.copy(epgPastHours = v) }; LiveTvRepository.refreshEpgOnly() }
         LiveDialog.StreamFormat -> ChoiceDialog(
             title = stringResource(Res.string.livetv_stream_format),
-            options = listOf("auto" to "Auto", "ts" to "MPEG-TS", "m3u8" to "HLS (m3u8)"),
+            options = listOf("auto", "ts", "m3u8").map { it to streamFormatLabel(it) },
             selected = playlists.firstOrNull { it.isXtream }?.streamFormat ?: "auto",
             onDismiss = close,
         ) { v ->
@@ -1220,7 +1281,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         ) { v -> update { it.copy(onDemandStreamsPosition = v) } }
         LiveDialog.VodDefaultSort -> ChoiceDialog(
             title = stringResource(Res.string.livetv_vod_default_sort),
-            options = VodSort.entries.map { it to it.label },
+            options = VodSort.entries.map { it to vodSortLabel(it) },
             selected = VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT,
             onDismiss = close,
         ) { v -> update { it.copy(vodDefaultSort = v.name) } }
@@ -1252,7 +1313,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = close,
         ) { v -> update { it.copy(recordingSpaceRule = v) } }
         LiveDialog.ConfirmRestore -> ConfirmDialog(
-            title = stringResource(Res.string.livetv_restore) + "?",
+            title = stringResource(Res.string.livetv_settings_restore_confirm),
             message = stringResource(Res.string.livetv_restore_message),
             confirm = stringResource(Res.string.livetv_restore),
             onDismiss = close,
@@ -1270,7 +1331,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = close,
         ) { importFile(d.text) }
         LiveDialog.ConfirmSignOut -> ConfirmDialog(
-            title = stringResource(Res.string.livetv_drive_sign_out) + "?",
+            title = stringResource(Res.string.livetv_settings_sign_out_confirm),
             message = stringResource(Res.string.livetv_drive_sign_out_description),
             confirm = stringResource(Res.string.livetv_drive_sign_out),
             onDismiss = close,
@@ -1336,7 +1397,9 @@ private fun ValueLabel(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.nuvio.colors.accent)
 }
 
-private fun minutesLabel(m: Int) = if (m == 0) "None" else if (m == 1) "1 minute" else "$m minutes"
+@Composable
+private fun minutesLabel(m: Int): String = if (m == 0) stringResource(Res.string.livetv_settings_none)
+else pluralStringResource(Res.plurals.livetv_settings_minutes, m, m)
 
 @Composable
 private fun scoreDelayLabel(seconds: Int): String = when {
@@ -1347,14 +1410,16 @@ private fun scoreDelayLabel(seconds: Int): String = when {
 }
 
 @Composable
-private fun leadLabel(m: Int): String = if (m == 0) stringResource(Res.string.livetv_reminder_lead_at_start) else stringResource(Res.string.livetv_reminder_lead_minutes, m)
+private fun leadLabel(m: Int): String = if (m == 0) stringResource(Res.string.livetv_reminder_lead_at_start)
+else pluralStringResource(Res.plurals.livetv_settings_minutes_before, m, m)
 
-private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> "Auto" }
+@Composable
+private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> stringResource(Res.string.livetv_settings_auto) }
 
 @Composable
 private fun playlistStatus(pl: PlaylistSource, account: PlaylistAccount?): String {
     val parts = ArrayList<String>()
-    if (!pl.enabled) parts += "Off"
+    if (!pl.enabled) parts += stringResource(Res.string.livetv_settings_off)
     if (pl.isXtream && !pl.importLive) {
         // TV channels switched off for this login: nothing to update or count on the Live TV side.
         parts += stringResource(if (pl.importVod) Res.string.livetv_xtream_movies_only else Res.string.livetv_xtream_nothing_included)
@@ -1362,12 +1427,18 @@ private fun playlistStatus(pl: PlaylistSource, account: PlaylistAccount?): Strin
         if (pl.lastError != null) parts += pl.lastError
         else if (pl.lastUpdatedMs > 0) parts += stringResource(Res.string.livetv_updated_at, formatLocalDateTime(pl.lastUpdatedMs))
         else parts += stringResource(Res.string.livetv_never_updated)
-        if (pl.channelCount > 0) parts += "${pl.channelCount} channels"
+        if (pl.channelCount > 0) parts += pluralStringResource(Res.plurals.livetv_settings_channels, pl.channelCount, pl.channelCount)
     }
     account?.let { a ->
-        a.daysLeftLabel()?.let { parts += if (it == "expired") "Expired" else "Expires in $it" }
+        a.daysLeft()?.let { days ->
+            parts += when {
+                a.expiresAtMs <= LiveTvClock.nowMs() -> stringResource(Res.string.livetv_settings_expired)
+                days == 0L -> stringResource(Res.string.livetv_settings_expires_today)
+                else -> pluralStringResource(Res.plurals.livetv_settings_expires_days, days.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), days)
+            }
+        }
         if (a.status.isNotBlank() && !a.status.equals("Active", true)) parts += a.status
-        if (a.maxConnections > 0) parts += "${a.activeConnections}/${a.maxConnections} connections"
+        if (a.maxConnections > 0) parts += pluralStringResource(Res.plurals.livetv_settings_connections, a.maxConnections, a.activeConnections, a.maxConnections)
     }
     return parts.joinToString(" · ")
 }
@@ -1375,7 +1446,7 @@ private fun playlistStatus(pl: PlaylistSource, account: PlaylistAccount?): Strin
 @Composable
 private fun epgStatus(src: EpgSource): String {
     val parts = ArrayList<String>()
-    if (!src.enabled) parts += "Off"
+    if (!src.enabled) parts += stringResource(Res.string.livetv_settings_off)
     if (src.lastError != null) parts += src.lastError
     else if (src.lastUpdatedMs > 0) parts += stringResource(Res.string.livetv_updated_at, formatLocalDateTime(src.lastUpdatedMs))
     else parts += stringResource(Res.string.livetv_never_updated)
@@ -1403,6 +1474,19 @@ private fun ConfirmDialog(title: String, message: String, confirm: String, destr
         }
     }
 }
+
+@Composable
+private fun vodSortLabel(sort: VodSort): String = stringResource(
+    when (sort) {
+        VodSort.DEFAULT -> Res.string.livetv_settings_vod_sort_default
+        VodSort.NAME_AZ -> Res.string.livetv_settings_vod_sort_name_az
+        VodSort.NAME_ZA -> Res.string.livetv_settings_vod_sort_name_za
+        VodSort.NEWEST -> Res.string.livetv_settings_vod_sort_newest
+        VodSort.OLDEST -> Res.string.livetv_settings_vod_sort_oldest
+        VodSort.RECENTLY_ADDED -> Res.string.livetv_settings_vod_sort_recently_added
+        VodSort.RATING -> Res.string.livetv_settings_vod_sort_rating
+    },
+)
 
 @Composable
 private fun vodTabPositionLabel(v: String): String = stringResource(
@@ -1433,6 +1517,7 @@ private fun <T> ChoiceDialog(title: String, options: List<Pair<T, String>>, sele
 
 @Composable
 private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
+    val defaultName = stringResource(Res.string.livetv_settings_playlist_name)
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
@@ -1450,7 +1535,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                 enabled = url.isNotBlank(),
                 onClick = {
                     if (existing == null) LiveTvRepository.addPlaylist(name, url, ua)
-                    else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded))
+                    else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { defaultName }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded))
                     onDismiss()
                 },
             )
@@ -1575,7 +1660,7 @@ private fun LockedGroupsDialog(onDismiss: () -> Unit) {
             items(vod, key = { "v:" + it.uid }) { c ->
                 val id = "vod:" + c.uid
                 val locked = id in user.lockedGroups
-                DialogOption(text = c.name, description = if (c.kind == VodKind.MOVIE) "Movies" else "Series", selected = locked, onClick = { LiveTvPreferences.setGroupLocked(id, !locked); if (locked) ParentalControls.relock() })
+                DialogOption(text = c.name, description = stringResource(if (c.kind == VodKind.MOVIE) Res.string.livetv_vod_movies else Res.string.livetv_vod_series), selected = locked, onClick = { LiveTvPreferences.setGroupLocked(id, !locked); if (locked) ParentalControls.relock() })
             }
         }
         DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = onDismiss) }

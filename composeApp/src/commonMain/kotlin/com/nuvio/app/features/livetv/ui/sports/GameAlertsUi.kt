@@ -60,11 +60,17 @@ import nuvio.composeapp.generated.resources.livetv_game_alerts_starting_descript
 import nuvio.composeapp.generated.resources.livetv_game_alerts_turn_on
 import nuvio.composeapp.generated.resources.livetv_sports_switch_auto
 import nuvio.composeapp.generated.resources.livetv_sports_switch_auto_description
+import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
+import nuvio.composeapp.generated.resources.livetv_settings_minutes_before
+import nuvio.composeapp.generated.resources.livetv_settings_scores
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
 private val ALERT_MINUTES = listOf(0, 5, 10, 15, 30, 60)
 
-private fun leadText(minutes: Int) = if (minutes == 0) "At the start" else "$minutes minutes before"
+@Composable
+private fun leadText(minutes: Int) = if (minutes == 0) stringResource(Res.string.livetv_reminder_lead_at_start)
+else pluralStringResource(Res.plurals.livetv_settings_minutes_before, minutes, minutes)
 
 /** Whether notifications are on, checked again every couple of seconds (they can be changed in the phone's settings). */
 @Composable
@@ -84,10 +90,11 @@ private fun notificationsOnState(): Boolean {
 private fun alertsSummary(s: SportsSettings, notificationsOn: Boolean): String {
     val off = stringResource(Res.string.livetv_game_alerts_off)
     val starting = stringResource(Res.string.livetv_game_alerts_starting)
+    val scores = stringResource(Res.string.livetv_settings_scores)
     if (!notificationsOn) return off
     val parts = buildList {
         if (s.remindMyTeams) add(starting)
-        if (s.scoringAlerts && !s.hideScores) add("Scores")
+        if (s.scoringAlerts && !s.hideScores) add(scores)
     }
     return if (parts.isEmpty()) off else parts.joinToString(" · ")
 }
