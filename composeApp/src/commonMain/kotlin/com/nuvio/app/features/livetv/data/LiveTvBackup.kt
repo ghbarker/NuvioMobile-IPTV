@@ -201,6 +201,7 @@ internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject, applyVpnBac
     val preferences = if (usesPlatformVpnBackup && (nativeVpnRestored || !applyVpnBackup)) {
         JsonObject(data.filterKeys { it != "vpn_profiles_v1" })
     } else data
+    val fullSetup = LiveTvBackup.syncHasSources(preferences)
     var changed: Set<String> = emptySet()
     var nativeChoices = emptyMap<String, PrefValue>()
     editImported { p ->
@@ -213,7 +214,9 @@ internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject, applyVpnBac
             if (MobileSetupSettings.isLocalLayout(raw, settingDefaults) &&
                 settingDefaults[raw.replace(LiveTvKeys.PROFILE_SUFFIX, "")]?.let { it::class == value::class } == true
             ) {
-                if (key in preferences || raw !in preferences) restored[raw] = value
+                // A complete legacy backup resets absent raw options to their original
+                // defaults. A source-free settings patch only changes entries it carries.
+                if (key in preferences || (raw !in preferences && !fullSetup)) restored[raw] = value
                 else if (restored[raw] != value) restored.remove(key)
             }
         }
