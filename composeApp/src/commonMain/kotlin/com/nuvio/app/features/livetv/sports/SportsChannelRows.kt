@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.sports
 
+import com.nuvio.app.features.livetv.model.BackupOrder
 import kotlin.math.roundToInt
 
 internal enum class SportsQualitySource { PLAYBACK, PROVIDER, SAVED }
@@ -75,13 +76,23 @@ internal fun sportsGameChannelRows(
     matches: List<ChannelMatch>,
     channelQuality: Map<String, String>,
     bestFirst: Boolean,
+    sourceOrder: List<String> = emptyList(),
 ): List<SportsChannelRowInfo> {
     fun row(match: ChannelMatch, copies: Int, hasCatchup: Boolean) = SportsChannelRowInfo(
         match, copies, hasCatchup, sportsChannelQuality(match.channel.name, channelQuality[match.channel.key], match.quality)
     )
-    if (!bestFirst) return SportsMatcher.groupCopies(matches).map { group -> row(group.first(), group.size, group.any { it.catchup }) }
-    return matches.distinctBy { it.channel.key }.map { row(it, 1, it.catchup) }.sortedWith(
-        compareByDescending<SportsChannelRowInfo> { it.quality?.height ?: 0 }
-            .thenByDescending { it.quality?.frameRate ?: 0f }
-    )
+    fun rowsWithinSource(channels: List<ChannelMatch>): List<SportsChannelRowInfo> {
+        if (!bestFirst) return SportsMatcher.groupCopies(channels).map { group ->
+            row(group.first(), group.size, group.any { it.catchup })
+        }
+        return channels.distinctBy { it.channel.key }.map { row(it, 1, it.catchup) }.sortedWith(
+            compareByDescending<SportsChannelRowInfo> { it.quality?.height ?: 0 }
+                .thenByDescending { it.quality?.frameRate ?: 0f }
+        )
+    }
+    if (sourceOrder.isEmpty()) return rowsWithinSource(matches)
+    val ranks = sourceOrder.withIndex().associate { it.value to it.index }
+    return matches.groupBy { BackupOrder.sourceKey(it.channel) }.entries
+        .sortedBy { ranks[it.key] ?: Int.MAX_VALUE }
+        .flatMap { rowsWithinSource(it.value) }
 }

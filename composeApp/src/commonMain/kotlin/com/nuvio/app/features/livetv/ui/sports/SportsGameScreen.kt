@@ -85,6 +85,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.model.BackupOrder
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
@@ -111,6 +112,7 @@ import com.nuvio.app.features.livetv.sports.SportsVideos
 import com.nuvio.app.features.livetv.sports.Standings
 import com.nuvio.app.features.livetv.sports.TeamInfo
 import com.nuvio.app.features.livetv.ui.ChannelLogo
+import com.nuvio.app.features.livetv.ui.GameSourceOrderButton
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -328,8 +330,22 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
     }
     val qualityUpdates = remember { LiveTvPreferences.userState.map { it.channelQuality }.distinctUntilChanged() }
     val channelQuality by qualityUpdates.collectAsStateWithLifecycle(LiveTvPreferences.userState.value.channelQuality)
-    val channelRows = remember(matches, channelQuality, settings.bestChannelFirst) {
-        sportsGameChannelRows(matches, channelQuality, settings.bestChannelFirst)
+    val liveSettings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+    val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
+    val playlistNames = remember(playlists, ownChannels) {
+        buildMap {
+            playlists.forEach { put(it.id, it.name) }
+            ownChannels.forEach { m -> if (m.channel.sourceId !in this) put(m.channel.sourceId, m.channel.sourceName) }
+        }
+    }
+    val gameAddons = remember(matches) {
+        matches.map { it.channel }.filter(BackupOrder::isAddon).map { it.sourceName }.distinct()
+    }
+    val sourceOrder = remember(playlistNames, gameAddons, liveSettings.backupGroupBy, liveSettings.backupSourceOrder) {
+        BackupOrder.gameSources(liveSettings, playlistNames.keys.toList(), gameAddons)
+    }
+    val channelRows = remember(matches, channelQuality, settings.bestChannelFirst, sourceOrder) {
+        sportsGameChannelRows(matches, channelQuality, settings.bestChannelFirst, sourceOrder)
     }
     val strip = remember(known, ev.id, ev.leagueId, ev.startMs) { stripGames(ev, known) }
     // What each channel's guide has on now (for its guide line), checked again every minute.
@@ -510,9 +526,12 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
         } else {
             // ---- live or coming up: your channels, each with what its guide says
             item(key = "channels-h") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
                     SectionHeading(stringResource(Res.string.livetv_sports_watch_on).uppercase(), null, modifier = Modifier.weight(1f))
                     if (matching) NuvioLoadingIndicator(size = NuvioTokens.Space.s16)
+                    if (matches.isNotEmpty()) {
+                        GameSourceOrderButton(liveSettings, playlistNames, gameAddons, LiveTvPreferences::updateSettings)
+                    }
                 }
             }
             if (channelRows.isEmpty()) {

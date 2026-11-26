@@ -1,6 +1,8 @@
 package com.nuvio.app.features.livetv.sports
 
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.LiveTvSettings
+import com.nuvio.app.features.livetv.model.BackupOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -10,6 +12,53 @@ class SportsChannelRowsTest {
         LiveChannel(key, "provider", "Playlist", name, null, null, null, "group", "Sports", 1, ""),
         80, "Guide", null, guideQuality, catchup,
     )
+
+    private fun sourceMatch(key: String, name: String, id: String, provider: String): ChannelMatch {
+        val match = match(key, name)
+        return match.copy(channel = match.channel.copy(sourceId = id, sourceName = provider))
+    }
+
+    @Test
+    fun customSourceOrderKeepsEverySourceAndRanksQualityInsideIt() {
+        val matches = listOf(
+            sourceMatch("b1", "Final 4K", "b", "Backup"),
+            sourceMatch("m1", "Final HD", "m", "Main"),
+            sourceMatch("a1", "Final 720p25", SportsAddonSource.SOURCE_ID, "Sports Stream"),
+            sourceMatch("new", "Final 4K", SportsAddonSource.SOURCE_ID, "New add-on"),
+            sourceMatch("a2", "Final 1080p50", SportsAddonSource.SOURCE_ID, "Sports Stream"),
+            sourceMatch("m2", "Final FHD", "m", "Main"),
+        )
+        val initial = LiveTvSettings(backupGroupBy = BackupOrder.QUALITY)
+        val config = BackupOrder.withGameSources(initial, listOf("removed", BackupOrder.addonKey("Sports Stream"), "m", "b"))
+        fun order(s: LiveTvSettings) = BackupOrder.gameSources(s, listOf("b", "m"), listOf("Sports Stream", "New add-on"))
+        assertEquals(BackupOrder.SOURCE, config.backupGroupBy)
+        assertEquals(listOf(BackupOrder.addonKey("Sports Stream"), "m", "b", BackupOrder.addonKey("New add-on")), order(config))
+        val rows = sportsGameChannelRows(matches, emptyMap(), true, order(config))
+        assertEquals(listOf("a2", "a1", "m2", "m1", "b1", "new"), rows.map { it.match.channel.key })
+        // A source missing from this game leaves no gap and takes its usual place when its streams arrive.
+        assertEquals(listOf("m2", "m1", "b1", "new"),
+            sportsGameChannelRows(matches.filterNot { it.channel.sourceName == "Sports Stream" }, emptyMap(), true, order(config))
+                .map { it.match.channel.key })
+        assertEquals(emptyList(), order(config.copy(backupSourceOrder = "")))
+        assertEquals(emptyList(), order(config.copy(backupGroupBy = BackupOrder.QUALITY)))
+        assertEquals(emptyList(), order(config.copy(backupGroupBy = BackupOrder.NONE)))
+    }
+
+    @Test
+    fun foldedChannelsNeverSwallowMatchingNamesAcrossOrderedSources() {
+        val matches = listOf(
+            sourceMatch("b", "TNT", "backup", "IPTV"),
+            sourceMatch("m", "TNT", "main", "IPTV"),
+            sourceMatch("m2", "TNT HD", "main", "IPTV"),
+            sourceMatch("a", "TNT", SportsAddonSource.SOURCE_ID, "Sports Stream"),
+            sourceMatch("a2", "TNT", SportsAddonSource.SOURCE_ID, "Second add-on"),
+        )
+        val order = listOf(BackupOrder.addonKey("Sports Stream"), "main", "backup", BackupOrder.addonKey("Second add-on"))
+        val rows = sportsGameChannelRows(matches, emptyMap(), false, order)
+        assertEquals(listOf("a", "m", "b", "a2"), rows.map { it.match.channel.key })
+        assertEquals(listOf(1, 2, 1, 1), rows.map { it.copies })
+        assertEquals(5, sportsGameChannelRows(matches, emptyMap(), false).single().copies)
+    }
 
     @Test
     fun ordersIndividualCopiesByHeightThenRateAndKeepsTiesStable() {

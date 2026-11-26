@@ -81,6 +81,13 @@ object BackupOrder {
 
     fun withSources(s: LiveTvSettings, order: List<String>): LiveTvSettings = s.copy(backupSourceOrder = order.joinToString("\n"))
 
+    /** A game uses its existing channel order until the viewer chooses a source order. */
+    fun gameSources(s: LiveTvSettings, playlists: List<String>, addons: List<String>): List<String> =
+        if (groupBy(s) == SOURCE && s.backupSourceOrder.isNotBlank()) sources(s, playlists, addons) else emptyList()
+
+    fun withGameSources(s: LiveTvSettings, order: List<String>): LiveTvSettings =
+        withSources(s.copy(backupGroupBy = SOURCE), order)
+
     fun reset(s: LiveTvSettings): LiveTvSettings = s.copy(backupSourceOrder = "", backupQualityOrder = "")
 
     /**

@@ -5,7 +5,7 @@
     <string name="livetv_backups_playlist_tag">Playlist</string>
     <string name="livetv_backups_quality_other">Other quality</string>
     <string name="livetv_backup_order_title">Backups &amp; Game Channels</string>
-    <string name="livetv_backup_order_row_subtitle">How the player's Backups list is grouped and sorted (shared with your TVs)</string>
+    <string name="livetv_backup_order_row_subtitle">Group backups and set the playlist and add-on order for Sports Hub game channels</string>
     <string name="livetv_backup_order_group_by">Group by</string>
     <string name="livetv_backup_order_group_by_hint">Inside each heading, channels follow the other order below</string>
     <string name="livetv_backup_order_by_source">Playlist / add-on</string>
@@ -18,4 +18,10 @@
     <string name="livetv_backup_order_quality_unknown">Quality not in the name</string>
     <string name="livetv_backup_order_reset">Back to default order</string>
     <string name="livetv_backup_order_no_sources">No playlists or add-ons yet</string>
+    <string name="livetv_game_sort_sources">Sort sources</string>
+    <string name="livetv_game_sort_sources_hint">Move the source you want first to the top. Saving this order groups game channels and player backups by playlist or add-on.</string>
+    <string name="livetv_game_sort_apply">Use this order</string>
+    <string name="livetv_game_sort_reset">Reset source order</string>
+    <string name="livetv_source_move_up">Move %1$s up</string>
+    <string name="livetv_source_move_down">Move %1$s down</string>
 </resources>
