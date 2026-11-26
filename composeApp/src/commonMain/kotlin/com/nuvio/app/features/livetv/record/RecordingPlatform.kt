@@ -3,6 +3,12 @@ package com.nuvio.app.features.livetv.record
 /** The provider answered a recording's request with an HTTP error. */
 internal class RecordingHttpError(val code: Int) : Exception("HTTP $code")
 
+/** A response opened as a plain stream was actually HLS. Reuse its playlist and final address. */
+internal class RecordingHlsResponse(val text: String, val finalUrl: String) : Exception("The recording source is HLS")
+
+/** A successful HTTP response contained a provider error page instead of media. */
+internal class RecordingContentError(message: String) : Exception(message)
+
 /**
  * What recordings need from the device: files in the app's own storage, a stream copied to a
  * file, the app kept running while it records, alarms for scheduled recordings, notifications.
@@ -34,7 +40,8 @@ internal expect object RecordingPlatform {
      * Copies the stream at [url] into [path] (appended to when [append]) until it ends or
      * [shouldStop] says so, calling [onProgress] with the bytes written so far now and then.
      * Throws [RecordingHttpError] for an HTTP error, or another exception with a plain-English
-     * message when the connection fails.
+     * message when the connection fails. A discovered HLS response throws [RecordingHlsResponse]
+     * before writing to the video file, so its already-read playlist can be recorded as media.
      */
     suspend fun download(url: String, headers: Map<String, String>, path: String, append: Boolean, shouldStop: () -> Boolean, mediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null, onProgress: (Long) -> Unit)
 

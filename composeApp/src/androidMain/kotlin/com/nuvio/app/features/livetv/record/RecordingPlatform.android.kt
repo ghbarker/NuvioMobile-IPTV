@@ -19,6 +19,9 @@ import androidx.core.content.ContextCompat
 import com.nuvio.app.features.settings.AppIconPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -82,15 +85,49 @@ internal actual object RecordingPlatform {
 
     actual fun playUrl(path: String): String = File(path).toURI().toString()
 
+    @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
     actual suspend fun download(url: String, headers: Map<String, String>, path: String, append: Boolean, shouldStop: () -> Boolean, mediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy?, onProgress: (Long) -> Unit) =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).apply { headers.forEach { (k, v) -> if (k.isNotBlank() && v.isNotBlank()) header(k, v) } }.get().build()
             val target = File(path)
             target.parentFile?.mkdirs()
+            val call = (mediaPolicy?.let(com.nuvio.app.features.livetv.stalker.StalkerMediaHttp::calls)
+                ?: com.nuvio.vpn.android.VpnHttpClient.wrap(http)).newCall(request)
+            // The IO job owns its call through body consumption; cancellation must interrupt read().
+            val cancellation = coroutineContext[Job]?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) {
+                if (it != null) call.cancel()
+            }
             try {
-                (mediaPolicy?.let(com.nuvio.app.features.livetv.stalker.StalkerMediaHttp::calls) ?: com.nuvio.vpn.android.VpnHttpClient.wrap(http)).newCall(request).execute().use { response ->
+                call.execute().use { response ->
                     if (!response.isSuccessful) throw RecordingHttpError(response.code)
                     val body = response.body ?: throw IllegalStateException("Empty response")
+                    val source = body.source()
+                    // Inspect the response being saved, not another HEAD/GET. Peeking leaves the
+                    // binary prefix in the same source for the ordinary stream copy below.
+                    source.request(512)
+                    val bytes = source.buffer.clone().readByteArray(minOf(source.buffer.size, 512L))
+                    val prefix = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF").trimStart()
+                    val type = body.contentType()?.toString()?.substringBefore(';')?.lowercase().orEmpty()
+                    val binary = (bytes.size > 376 && listOf(0, 188, 376).all { bytes[it] == 0x47.toByte() }) ||
+                        (bytes.size >= 8 && bytes.copyOfRange(4, 8).toString(Charsets.US_ASCII) in setOf("ftyp", "styp")) ||
+                        (bytes.size >= 4 && bytes.take(4) == listOf(0x1a, 0x45, 0xdf, 0xa3).map { it.toByte() })
+                    val hlsHint = type in HLS_TYPES ||
+                        response.request.url.encodedPath.endsWith(".m3u8", ignoreCase = true)
+                    if (!binary && prefix.startsWith("#EXTM3U")) {
+                        if (source.request(MAX_PLAYLIST_BYTES + 1)) throw RecordingContentError("The provider's HLS playlist is too large")
+                        val text = source.readUtf8().removePrefix("\uFEFF").trimStart()
+                        if (!text.startsWith("#EXTM3U")) throw RecordingContentError("The provider returned an invalid HLS playlist")
+                        throw RecordingHlsResponse(text, response.request.url.toString())
+                    }
+                    val text = prefix.none { it == '\uFFFD' || (it.code < 32 && !it.isWhitespace()) }
+                    val jsonStart = prefix.drop(1).trimStart().firstOrNull()
+                    val json = (prefix.startsWith("{") && jsonStart in listOf('"', '}')) ||
+                        (prefix.startsWith("[") && jsonStart in listOf('"', '{', '[', ']'))
+                    if (!binary && text && (hlsHint || type == "text/html" || type == "application/json" || type == "text/json" ||
+                        prefix.startsWith("<!doctype html", ignoreCase = true) || prefix.startsWith("<html", ignoreCase = true) || json)) {
+                        throw RecordingContentError(if (hlsHint) "The provider returned an invalid HLS playlist"
+                            else "The provider returned an error page instead of video")
+                    }
                     body.byteStream().use { input ->
                         FileOutputStream(target, append).buffered(256 * 1024).use { out ->
                             val buf = ByteArray(64 * 1024)
@@ -106,14 +143,23 @@ internal actual object RecordingPlatform {
                         }
                     }
                 }
+            } catch (e: RecordingHlsResponse) {
+                throw e
+            } catch (e: RecordingContentError) {
+                throw e
             } catch (e: RecordingHttpError) {
                 throw e
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                coroutineContext.ensureActive()
                 throw IllegalStateException(describe(e), e)
-            }
+            } finally { cancellation?.dispose() }
         }
+
+    private const val MAX_PLAYLIST_BYTES = 1024L * 1024
+    private val HLS_TYPES = setOf("application/vnd.apple.mpegurl", "application/x-mpegurl", "application/mpegurl",
+        "application/m3u8", "audio/mpegurl", "audio/x-mpegurl")
 
     actual suspend fun fetchText(url: String, headers: Map<String, String>, mediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy?): String = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).apply { headers.forEach { (k, v) -> if (k.isNotBlank() && v.isNotBlank()) header(k, v) } }.get().build()
