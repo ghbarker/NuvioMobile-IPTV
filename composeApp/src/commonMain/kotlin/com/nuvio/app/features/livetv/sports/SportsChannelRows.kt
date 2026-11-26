@@ -82,10 +82,12 @@ internal fun sportsGameChannelRows(
         match, copies, hasCatchup, sportsChannelQuality(match.channel.name, channelQuality[match.channel.key], match.quality)
     )
     fun rowsWithinSource(channels: List<ChannelMatch>): List<SportsChannelRowInfo> {
-        if (!bestFirst) return SportsMatcher.groupCopies(channels).map { group ->
+        if (!bestFirst && sourceOrder.isEmpty()) return SportsMatcher.groupCopies(channels).map { group ->
             row(group.first(), group.size, group.any { it.catchup })
         }
-        return channels.distinctBy { it.channel.key }.map { row(it, 1, it.catchup) }.sortedWith(
+        val rows = channels.distinctBy { it.channel.key }.map { row(it, 1, it.catchup) }
+        if (!bestFirst) return rows
+        return rows.sortedWith(
             compareByDescending<SportsChannelRowInfo> { it.quality?.height ?: 0 }
                 .thenByDescending { it.quality?.frameRate ?: 0f }
         )

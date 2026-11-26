@@ -45,19 +45,20 @@ class SportsChannelRowsTest {
     }
 
     @Test
-    fun foldedChannelsNeverSwallowMatchingNamesAcrossOrderedSources() {
+    fun customOrderKeepsEveryDistinctFeedInOriginalOrderWhenQualitySortIsOff() {
         val matches = listOf(
             sourceMatch("b", "TNT", "backup", "IPTV"),
             sourceMatch("m", "TNT", "main", "IPTV"),
-            sourceMatch("m2", "TNT HD", "main", "IPTV"),
+            sourceMatch("m2", "TNT", "main", "IPTV"),
             sourceMatch("a", "TNT", SportsAddonSource.SOURCE_ID, "Sports Stream"),
+            sourceMatch("a3", "TNT", SportsAddonSource.SOURCE_ID, "Sports Stream"),
             sourceMatch("a2", "TNT", SportsAddonSource.SOURCE_ID, "Second add-on"),
         )
         val order = listOf(BackupOrder.addonKey("Sports Stream"), "main", "backup", BackupOrder.addonKey("Second add-on"))
-        val rows = sportsGameChannelRows(matches, emptyMap(), false, order)
-        assertEquals(listOf("a", "m", "b", "a2"), rows.map { it.match.channel.key })
-        assertEquals(listOf(1, 2, 1, 1), rows.map { it.copies })
-        assertEquals(5, sportsGameChannelRows(matches, emptyMap(), false).single().copies)
+        val rows = sportsGameChannelRows(matches + matches.first(), emptyMap(), false, order)
+        assertEquals(listOf("a", "a3", "m", "m2", "b", "a2"), rows.map { it.match.channel.key })
+        assertEquals(List(6) { 1 }, rows.map { it.copies })
+        assertEquals(6, sportsGameChannelRows(matches, emptyMap(), false).single().copies)
     }
 
     @Test
