@@ -61,8 +61,8 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
     }
 
     /** Runs [block], connecting again once if the old connection had dropped. */
-    private fun <T> call(block: (DiskShare) -> T): T {
-        var first = true
+    private fun <T> call(retry: Boolean = true, block: (DiskShare) -> T): T {
+        var first = retry
         while (true) {
             try {
                 val result = block(share())
@@ -257,7 +257,9 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
     }
 
     /** Copies [count] bytes of [rel] from [offset] into [out] (fewer if the file is shorter). */
-    fun read(rel: String, offset: Long, count: Long, out: OutputStream) = call { d ->
+    fun read(rel: String, offset: Long, count: Long, out: OutputStream) = read(rel, offset, count, out, retry = true)
+
+    internal fun read(rel: String, offset: Long, count: Long, out: OutputStream, retry: Boolean) = call(retry) { d ->
         d.openFile(
             p(rel),
             EnumSet.of(AccessMask.GENERIC_READ),
