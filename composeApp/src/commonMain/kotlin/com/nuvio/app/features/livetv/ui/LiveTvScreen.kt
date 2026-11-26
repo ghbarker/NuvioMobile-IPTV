@@ -110,6 +110,7 @@ import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.NetworkFolderConfig
+import com.nuvio.app.features.livetv.record.OfflineRecordings
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
 import com.nuvio.app.features.livetv.sports.SportsLive
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -192,7 +193,9 @@ fun LiveTvScreen(
     // even when nothing was recorded or set to record on this phone.
     val networkFolderJson by LiveTvPreferences.networkFolderJson.collectAsStateWithLifecycle(LiveTvPreferences.currentNetworkFolderJson())
     val networkFolderSetUp = remember(networkFolderJson) { NetworkFolderConfig.fromJson(networkFolderJson) != null }
-    val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty() || networkFolderSetUp
+    val offline by remember { OfflineRecordings.start(); OfflineRecordings.state }.collectAsStateWithLifecycle()
+    val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty() ||
+        networkFolderSetUp || offline.ready.isNotEmpty()
     var manualRecording by remember { mutableStateOf<Pair<LiveChannel, Boolean>?>(null) }
     val sportsSettings by remember { SportsRepository.start(); SportsRepository.settings }.collectAsStateWithLifecycle()
     val sportsOn = sportsSettings.showInSidebar
