@@ -55,6 +55,7 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.isIos
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.LiveTvDns
@@ -397,6 +398,8 @@ import nuvio.composeapp.generated.resources.livetv_stream_format
 import nuvio.composeapp.generated.resources.livetv_stream_format_description
 import nuvio.composeapp.generated.resources.livetv_switch_backup
 import nuvio.composeapp.generated.resources.livetv_switch_backup_description
+import nuvio.composeapp.generated.resources.livetv_adaptive_buffer
+import nuvio.composeapp.generated.resources.livetv_adaptive_buffer_description
 import nuvio.composeapp.generated.resources.livetv_update_all
 import nuvio.composeapp.generated.resources.livetv_update_all_description
 import nuvio.composeapp.generated.resources.livetv_update_now
@@ -847,6 +850,16 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
 
         SettingsSection(title = stringResource(Res.string.livetv_section_watching), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
+                if (!isIos) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.livetv_adaptive_buffer),
+                        description = stringResource(Res.string.livetv_adaptive_buffer_description),
+                        checked = settings.adaptiveLiveBufferEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = { on -> update { it.copy(adaptiveLiveBufferEnabled = on) } },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                }
                 SettingsNavigationRow(
                     title = stringResource(Res.string.livetv_stream_format),
                     description = stringResource(Res.string.livetv_stream_format_description),

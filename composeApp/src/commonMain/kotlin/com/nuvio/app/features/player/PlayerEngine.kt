@@ -11,6 +11,8 @@ interface PlayerEngineController {
     fun seekBy(offsetMs: Long)
     fun retry()
     fun setPlaybackSpeed(speed: Float)
+    /** The speed chosen by the viewer, excluding temporary buffer recovery. */
+    fun userPlaybackSpeed(currentSpeed: Float): Float = currentSpeed
     fun setMuted(muted: Boolean) {}
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>

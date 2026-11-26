@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.streams.redactedForLogs
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
@@ -467,7 +468,12 @@ private fun ExoPlayerSurface(
         }
     }
 
-    val exoPlayer = remember(
+    val liveBufferSession = remember(playerSourceKey) {
+        if (continuousLive && (sourceUrl.startsWith("https://", true) || sourceUrl.startsWith("http://", true))) {
+            AdaptiveLiveBufferSession()
+        } else null
+    }
+    val (exoPlayer, liveBuffer) = remember(
         sourceUrl,
         stalkerMediaPolicy,
         sourceAudioUrl,
@@ -504,8 +510,10 @@ private fun ExoPlayerSurface(
             else -> null
         }
         Log.i(TAG, "Audio downmix: ${audioDownmix?.channels?.settingValue ?: "off"} (bluetooth=$bluetoothOutput)")
+        val adaptiveBuffer = liveBufferSession?.let(::MobileAdaptiveLiveBuffer)
         val renderersFactory = SubtitleOffsetRenderersFactory(
             context = context,
+            liveBuffer = adaptiveBuffer,
             subtitleDelayUsProvider = { latestSubtitleDelayMs.value.toLong() * 1_000L },
             audioDelayUsProvider = audioDelayUs::get,
             audioAmplificationDbProvider = audioAmplificationDb::get,
@@ -572,6 +580,7 @@ private fun ExoPlayerSurface(
                 targetBufferSizeMb = playerSettings.targetBufferSizeMb,
             ),
             localFileSource = isLocalFileSource,
+            onExplicitByteBudget = adaptiveBuffer?.let { it::observeByteBudget },
         )
 
         // Audio focus is handled by PlayerAudioFocus, so a denied request (e.g. during a call)
@@ -633,7 +642,7 @@ private fun ExoPlayerSurface(
             hasActiveSubtitle = false,
             useCustomSubtitles = false,
         )
-        player
+        player to adaptiveBuffer
     }
 
     val nowPlayingController = remember(context, exoPlayer) {
@@ -878,6 +887,7 @@ private fun ExoPlayerSurface(
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying) liveBuffer?.suspend(exoPlayer)
                 Log.i(
                     PLAYER_DIAGNOSTIC_TAG,
                     "isPlaying=$isPlaying attempt=${playbackDiagnostics.attempt} " +
@@ -898,6 +908,7 @@ private fun ExoPlayerSurface(
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                liveBuffer?.onParametersChanged(playbackParameters)
                 dispatchExoPlayerSnapshot()
             }
 
@@ -991,6 +1002,7 @@ private fun ExoPlayerSurface(
             when (event) {
                 Lifecycle.Event.ON_START -> exoPlayer.playWhenReady = latestPlayWhenReady.value
                 Lifecycle.Event.ON_STOP -> {
+                    liveBuffer?.suspend(exoPlayer)
                     val isInPictureInPicture =
                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity?.isInPictureInPictureMode == true
                     val isFinishing = activity?.isFinishing == true
@@ -1006,6 +1018,7 @@ private fun ExoPlayerSurface(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             playerViewRef?.releaseLibassOverlay()
+            liveBuffer?.suspend(exoPlayer)
             exoPlayer.releaseWithAssSupportCompat()
             if (VodCache.playheadBytesProvider != null) {
                 VodCache.playheadBytesProvider = null
@@ -1089,8 +1102,12 @@ private fun ExoPlayerSurface(
                 }
 
                 override fun setPlaybackSpeed(speed: Float) {
+                    liveBuffer?.selectUserSpeed()
                     exoPlayer.setPlaybackSpeed(speed)
                 }
+
+                override fun userPlaybackSpeed(currentSpeed: Float): Float =
+                    liveBuffer?.userSpeed(exoPlayer) ?: currentSpeed
 
                 override fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {
                     nowPlayingController.updateMetadata(info)
@@ -1327,8 +1344,16 @@ private fun ExoPlayerSurface(
         )
     }
 
-    LaunchedEffect(exoPlayer) {
+    LaunchedEffect(exoPlayer, lifecycleOwner) {
         while (isActive) {
+            liveBuffer?.update(
+                exoPlayer,
+                enabled = LiveTvPreferences.settings.value.adaptiveLiveBufferEnabled &&
+                    (!playerSettings.bufferEngineEnabled ||
+                        playerSettings.maxBufferMs >= AdaptiveLiveBufferPolicy.TARGET_BUFFER_MS),
+                foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED),
+                nowMs = SystemClock.elapsedRealtime(),
+            )
             dispatchExoPlayerSnapshot()
             delay(250L)
         }
@@ -3030,6 +3055,7 @@ private data class FfmpegAudioDownmix(
 @androidx.annotation.OptIn(UnstableApi::class)
 private class SubtitleOffsetRenderersFactory(
     context: Context,
+    private val liveBuffer: MobileAdaptiveLiveBuffer?,
     private val subtitleDelayUsProvider: () -> Long,
     private val audioDelayUsProvider: () -> Long,
     private val audioAmplificationDbProvider: () -> Int,
@@ -3047,11 +3073,12 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink {
-        return DefaultAudioSink.Builder(context)
+        val sink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(GainAudioProcessor(audioAmplificationDbProvider)))
             .build()
+        return liveBuffer?.trackAudio(sink, enableAudioTrackPlaybackParams) ?: sink
     }
 
     override fun buildAudioRenderers(

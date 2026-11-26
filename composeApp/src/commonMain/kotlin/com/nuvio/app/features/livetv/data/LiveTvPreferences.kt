@@ -201,6 +201,7 @@ internal object LiveTvKeys {
     const val homeRowShowNext = "home_row_show_next"
     const val homeRowCompact = "home_row_compact"
     const val bufferSize = "buffer_size"
+    const val adaptiveLiveBuffer = "adaptive_live_buffer"
     const val groupSort = "group_sort"
     const val timeshiftEnabled = "timeshift_enabled"
     const val timeshiftMinutes = "timeshift_minutes"
@@ -270,7 +271,7 @@ internal object LiveTvKeys {
     private val SYNC_EXCLUDED_BASE = setOf(
         "last_channel", "previous_channel", "last_group", "recent", "on_demand_imports",
         "channel_quality", "developer_tools", "recording_storage", "network_folder_own",
-        "phone_channel_logos", "phone_channel_names", "phone_channel_numbers"
+        "phone_channel_logos", "phone_channel_names", "phone_channel_numbers", adaptiveLiveBuffer
     )
     internal val PROFILE_SUFFIX = Regex("""_p\d+$""")
 
@@ -1034,6 +1035,7 @@ internal open class LiveTvPreferencesStore {
             homeRowShowNext = p.bool(LiveTvKeys.homeRowShowNext) ?: d.homeRowShowNext,
             homeRowCompact = p.bool(LiveTvKeys.homeRowCompact) ?: d.homeRowCompact,
             bufferSize = p.str(LiveTvKeys.bufferSize) ?: d.bufferSize,
+            adaptiveLiveBufferEnabled = p.bool(LiveTvKeys.adaptiveLiveBuffer) ?: d.adaptiveLiveBufferEnabled,
             groupSort = p.str(LiveTvKeys.groupSort) ?: d.groupSort,
             timeshiftEnabled = p.bool(LiveTvKeys.timeshiftEnabled) ?: d.timeshiftEnabled,
             timeshiftMinutes = p.int(LiveTvKeys.timeshiftMinutes) ?: d.timeshiftMinutes,
@@ -1331,6 +1333,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.homeRowShowNext] = s.homeRowShowNext
         p[LiveTvKeys.homeRowCompact] = s.homeRowCompact
         p[LiveTvKeys.bufferSize] = s.bufferSize
+        p[LiveTvKeys.adaptiveLiveBuffer] = s.adaptiveLiveBufferEnabled
         p[LiveTvKeys.groupSort] = s.groupSort
         p[LiveTvKeys.timeshiftEnabled] = s.timeshiftEnabled
         p[LiveTvKeys.timeshiftMinutes] = s.timeshiftMinutes
