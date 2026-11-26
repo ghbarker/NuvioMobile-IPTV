@@ -83,6 +83,21 @@ class MobileSetupSettingsTest {
         assertEquals(layout, SyncParts.keep(JsonObject(emptyMap()), layout))
     }
 
+    @Test fun existingPhoneLayoutMigratesOnceAndFutureTvImportsDoNotAdoptIt() {
+        val store = LiveTvPreferencesStore()
+        val raw = LiveTvKeys.compactRows
+        val alias = MobileSetupSettings.LAYOUT + raw
+        val prior = mapOf(raw to PrefValue.Bool(true))
+        var device = emptyMap<String, PrefValue>()
+        store.installPersistence({ prior }, {}, { device }, { device = it })
+        assertEquals(PrefValue.Bool(true), store.rawData.value[alias])
+        val tv = JsonObject(mapOf(raw to JsonObject(mapOf("t" to JsonPrimitive("b"), "v" to JsonPrimitive(false)))))
+        store.importFromSync(tv)
+        assertFalse(alias in store.exportForSync())
+        store.installPersistence({ prior }, {}, { device }, { device = it })
+        assertFalse(alias in store.exportForSync())
+    }
+
     @Test fun invalidSeekDataCannotClearExistingPreferences() {
         val phone = phone()
         file("seek_thumbnails").edit().putBoolean("enabled", true).commit()

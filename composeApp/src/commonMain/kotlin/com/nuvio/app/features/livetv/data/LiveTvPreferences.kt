@@ -621,6 +621,11 @@ internal open class LiveTvPreferencesStore {
             _data.value = load()?.toMap() ?: emptyMap()
             _device.value = loadDevice()?.toMap() ?: emptyMap()
         }
+        val migratedLayout = "mobile_setup_layout_migrated"
+        if (_device.value.bool(migratedLayout) != true) {
+            editImported { p -> rememberChangedLayout(p, emptyMap(), migrating = true) }
+            editDevice { it[migratedLayout] = true }
+        }
         // A profile chosen before the saved data was loaded gets its first-time copy now.
         runCatching { seedProfile(_profile.value) }
         runCatching { turnOnPlaylistGroupsOnce() }
@@ -771,7 +776,7 @@ internal open class LiveTvPreferencesStore {
      */
     private fun turnOnPlaylistGroupsOnce() {
         if (_device.value.bool(LiveTvKeys.groupPlaylistTurnedOn) == true) return
-        edit { it[LiveTvKeys.groupPlaylistHeadings] = true }
+        editImported { it[LiveTvKeys.groupPlaylistHeadings] = true }
         editDevice { it[LiveTvKeys.groupPlaylistTurnedOn] = true }
     }
 
@@ -779,6 +784,26 @@ internal open class LiveTvPreferencesStore {
 
     /** Changes the main store atomically and saves it. */
     fun edit(block: (MutableMap<String, PrefValue>) -> Unit) {
+        editImported { updated ->
+            block(updated)
+            rememberChangedLayout(updated, _data.value)
+        }
+    }
+
+    // Raw layout keys in older backups also belong to the TV. Only changes made here, or
+    // an explicit mobile alias from another phone, may establish a mobile layout preference.
+    private fun rememberChangedLayout(updated: MutableMap<String, PrefValue>, old: Map<String, PrefValue>, migrating: Boolean = false) {
+        val aliases = mutableMapOf<String, PrefValue>()
+        for ((key, value) in updated) {
+            if (old[key] == value || !MobileSetupSettings.isLocalLayout(key, settingDefaults)) continue
+            if ((old[key] ?: settingDefaults[key.replace(LiveTvKeys.PROFILE_SUFFIX, "")]) == value) continue
+            if (migrating && key == LiveTvKeys.groupPlaylistHeadings && value == PrefValue.Bool(true)) continue
+            aliases[MobileSetupSettings.LAYOUT + key] = value
+        }
+        updated.putAll(aliases)
+    }
+
+    internal fun editImported(block: (MutableMap<String, PrefValue>) -> Unit) {
         synchronized(lock) {
             val m = _data.value.toMutableMap()
             block(m)
