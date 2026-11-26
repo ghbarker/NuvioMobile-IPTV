@@ -40,7 +40,7 @@ internal object LiveTvRecorder {
     private val jobs = HashMap<String, Job>()
     private val stopRequested = HashSet<String>()
     /** Ended here because the job didn't stop in time: when the job does end, it just goes quietly. */
-    private val forced = HashSet<String>()
+    private val forced = HashMap<String, Job>()
     /** Catch-up downloads going on: recording id -> the provider (playlist) it's from. */
     private val catchupSources = HashMap<String, String>()
 
@@ -198,17 +198,59 @@ internal object LiveTvRecorder {
         save(done); update(done)
         NetworkUploads.finished(done)
         com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${done.title}\" was stuck; ended by hand: ${done.status}")
-        synchronized(lock) { forced += id; jobs.remove(id)?.cancel(); catchupSources.remove(id); stopRequested.remove(id) }
+        synchronized(lock) {
+            val writer = jobs.remove(id) ?: forced[id]
+            if (writer != null && !writer.isCompleted) {
+                if (forced[id] !== writer) {
+                    forced[id] = writer
+                    // Completion runs even when cancellation prevented the coroutine body from
+                    // starting, or its blocking download outlived the forced finish.
+                    writer.invokeOnCompletion {
+                        synchronized(lock) { if (forced[id] === writer) forced.remove(id) }
+                    }
+                }
+                writer.cancel()
+            } else forced.remove(id)
+            catchupSources.remove(id)
+            stopRequested.remove(id)
+        }
         stopServiceIfIdle()
     }
 
     /** Deletes a recording (stopping it first if it's still going). */
     fun delete(id: String) {
-        val rec = _recordings.value.firstOrNull { it.id == id }
-        if (rec?.isRecording == true) stop(id)
-        _recordings.value = _recordings.value.filterNot { it.id == id }
+        val rec = synchronized(lock) {
+            val current = _recordings.value.firstOrNull { it.id == id }
+            if (current?.isRecording == true) stop(id)
+            _recordings.value = _recordings.value.filterNot { it.id == id }
+            current
+        }
         rec?.let { r -> scope.launch { runCatching { RecordingPlatform.deleteDir(r.dir) } } }
         stopServiceIfIdle()
+    }
+
+    /** Renames a finished recording after saving its metadata successfully. */
+    suspend fun rename(expected: LiveTvRecording, input: String): String? = withContext(Dispatchers.Default) {
+        try {
+            check(RecordingPlatform.available) { "Recording isn't available on this device" }
+            NetworkUploads.editWhenIdle {
+                synchronized(lock) {
+                    val current = _recordings.value.firstOrNull { it.id == expected.id }
+                    check(current != null && RecordingRename.sameRecording(current, expected)) { RecordingRename.CHANGED }
+                    check(current.id !in forced && jobs[current.id]?.isCompleted != false) { "This recording is still finishing. Try again shortly" }
+                    val path = "${current.dir}/info.json"
+                    val before = checkNotNull(RecordingPlatform.readText(path)) { "The recording's details couldn't be read" }
+                    val renamed = RecordingRename.info(before, current, input)
+                    RecordingPlatform.replaceText(path, before, renamed)
+                    _recordings.value = _recordings.value.map { if (it.id == current.id) it.copy(title = RecordingRename.title(input)!!) else it }
+                    null
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: "The recording's title couldn't be saved"
+        }
     }
 
     /** Changes when a running recording stops. */
@@ -359,7 +401,7 @@ internal object LiveTvRecorder {
     /** The end of [record]: the recording marked done or failed, and [onFinished] told. */
     private fun finish(rec: LiveTvRecording, startPath: String, problem: String?, onFinished: (LiveTvRecording) -> Unit) {
         // Already ended by [forceFinish] (and maybe deleted since): nothing more to do.
-        if (synchronized(lock) { forced.remove(rec.id) }) {
+        if (synchronized(lock) { rec.id in forced }) {
             synchronized(lock) { stopRequested.remove(rec.id) }
             stopServiceIfIdle()
             return

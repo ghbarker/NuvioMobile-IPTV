@@ -16,6 +16,8 @@ internal expect object RecordingPlatform {
 
     fun readText(path: String): String?
     fun writeText(path: String, text: String)
+    /** Replaces existing metadata only if it still matches [expected]; failure keeps the old file. */
+    fun replaceText(path: String, expected: String, text: String)
     fun exists(path: String): Boolean
     fun deleteDir(path: String)
     fun dirSize(path: String): Long

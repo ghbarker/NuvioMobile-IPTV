@@ -42,6 +42,13 @@ internal actual object NetworkLibraryPlatform {
 
     actual fun playUrl(config: NetworkFolderConfig, id: String): String = NetworkRecordingServer.urlFor(config, id)
 
+    actual suspend fun rename(config: NetworkFolderConfig, rec: LiveTvRecording, title: String, isCurrent: () -> Boolean): String =
+        withContext(Dispatchers.IO) {
+            // An edit owns its connection: changing the configured share must not redirect it.
+            val job = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+            SmbFolder(config).use { NetworkRecordingRename.rename(it, rec, title) { job?.isActive != false && isCurrent() } }
+        }
+
     /** Like the TV app: the show's joined file(s), the details folder, and the show's folder once it's empty. */
     actual suspend fun delete(config: NetworkFolderConfig, id: String): Unit = withContext(Dispatchers.IO) {
         val f = folderFor(config)
