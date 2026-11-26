@@ -5,6 +5,7 @@ import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvSettings
 import com.nuvio.app.features.livetv.model.LiveUserState
+import com.nuvio.app.features.livetv.model.PlaylistSource
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockkObject
@@ -31,7 +32,11 @@ class AdaptiveLiveBackupRoutingTest {
         mockkObject(LiveTvPreferences, LiveTvRepository)
         every { LiveTvPreferences.currentSettings() } answers { settings }
         every { LiveTvPreferences.currentUserState() } returns LiveUserState(lockedGroups = setOf("locked"))
-        every { LiveTvPreferences.currentPlaylists() } returns emptyList()
+        every { LiveTvPreferences.currentPlaylists() } answers {
+            inventory.value.distinctBy { it.sourceId }.map {
+                PlaylistSource(it.sourceId, it.sourceName, "https://example.invalid/${it.sourceId}.m3u")
+            }
+        }
         justRun { LiveTvPreferences.recordWatched(any(), any()) }
         every { LiveTvRepository.displayChannels } returns inventory
     }
