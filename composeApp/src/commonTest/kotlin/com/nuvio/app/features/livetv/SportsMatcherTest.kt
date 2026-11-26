@@ -2,6 +2,8 @@ package com.nuvio.app.features.livetv
 
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.sports.ChannelMatch
+import com.nuvio.app.features.livetv.sports.restoreUnsearchedMatches
 import com.nuvio.app.features.livetv.sports.EventSource
 import com.nuvio.app.features.livetv.sports.GameState
 import com.nuvio.app.features.livetv.sports.GuideSearch
@@ -12,6 +14,7 @@ import com.nuvio.app.features.livetv.sports.SportsSettings
 import com.nuvio.app.features.livetv.sports.TeamInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -102,6 +105,85 @@ class SportsMatcherTest {
         val list = match(g)[g.id].orEmpty()
         assertFalse(list.any { it.sure })
         assertFalse(list.any { it.channel.key == "nfl03" })
+    }
+
+    @Test
+    fun requestedFightFindsItsPrelimsAndMainCardAcrossChannels() {
+        val fight = game("card", bears, lions).copy(
+            leagueId = "mma/ufc", title = "UFC 321: Silva vs Jones", home = null, away = null, broadcasts = listOf("ESPN"),
+        )
+        fun programme(title: String, hours: Long) = EpgProgram(kickoff + hours * hour, kickoff + (hours + 1) * hour, title)
+        val listings = GuideSearch.InMemory(mapOf(
+            "early" to listOf(programme("UFC 321 Early Prelims", -4)),
+            "main" to listOf(programme("UFC 321 Main Card", 2)),
+            "blocked" to listOf(programme("UFC 321 Prelims", -2)),
+            "wrong" to listOf(programme("UFC 320: Silva vs Jones", 0)),
+            "generic" to listOf(programme("UFC Fight Night Prelims", -3)),
+            "replay" to listOf(programme("UFC 321 Prelims Replay", -2)),
+            "studio" to listOf(programme("Countdown to UFC 321", -2)),
+            "network-studio" to listOf(programme("UFC 321 Press Conference", 0)),
+        ))
+        val channels = listOf("early", "main", "blocked", "wrong", "generic", "replay", "studio", "pinned").map { channel(it, "Station $it") } +
+            listOf(channel("event", "US: UFC 321 Main Card HD"), channel("wrong-event", "ESPN HD: UFC 320 Silva vs Jones"),
+                channel("replay-event", "ESPN HD: UFC 321 Replay"), channel("network-studio", "ESPN HD"))
+        val picks = SportsSettings(eventChannels = mapOf(fight.id to "pinned|${fight.startMs}"), blocked = setOf("${fight.id}|blocked"))
+        val result = SportsMatcher(listings).match(SportsMatcher.Input(listOf(fight, game("unrelated", bears, lions)),
+            channels, emptyMap(), 0, picks, now, onlyEventId = fight.id)).matches
+        assertEquals(setOf(fight.id), result.keys)
+        val rows = result.getValue(fight.id)
+        assertEquals("pinned", rows.first().channel.key)
+        assertEquals(setOf("pinned", "early", "main", "event"), rows.map { it.channel.key }.toSet())
+    }
+
+    @Test
+    fun selectedGuideEventReadsCurrentListingsAndCanSearchOutsideAutomaticHorizon() {
+        val start = now + 4 * 24 * hour
+        val programme = EpgProgram(start, start + hour, "British Darts Final")
+        val event = game("darts", bears, lions).copy(leagueId = "guide:other", startMs = start, title = programme.title,
+            home = null, away = null, source = EventSource.GUIDE, guideHits = listOf("espn" to programme))
+        val matcher = SportsMatcher(GuideSearch.InMemory(mapOf("fox" to listOf(programme))))
+        val result = matcher.match(SportsMatcher.Input(listOf(event), listOf(espn, fox), emptyMap(), 0,
+            SportsSettings(), now, onlyEventId = event.id)).matches
+        assertEquals(listOf("fox"), result.getValue(event.id).map { it.channel.key })
+    }
+
+    @Test
+    fun selectingATournamentDoesNotClaimGenericGolfFromAConcurrentTournament() {
+        val event = game("golf", bears, lions).copy(leagueId = "golf/pga", title = "Bermuda Championship",
+            hasTime = false, startMs = now - hour, endMs = now + hour, home = null, away = null)
+        val other = event.copy(id = "other-tour", title = "Madrid Open", leagueId = "golf/eur")
+        val matcher = SportsMatcher(GuideSearch.InMemory(emptyMap()))
+        val rows = matcher.match(SportsMatcher.Input(listOf(event, other), listOf(channel("g", "Golf HD"),
+            channel("p", "PGA Tour HD")), emptyMap(), 0, SportsSettings(), now, onlyEventId = event.id)).matches
+        assertEquals(setOf(event.id), rows.keys)
+        assertEquals(listOf("p"), rows.getValue(event.id).map { it.channel.key })
+    }
+
+    @Test
+    fun manualLookupReadsOnlyTheSelectedGuideWindowAndPropagatesReadFailures() {
+        val target = game("target", bears, lions)
+        val later = game("later", packers, bears).copy(startMs = kickoff + 25 * hour)
+        val db = object : GuideSearch by guide {
+            override fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean,
+                onRow: (String, Long, Long, String, String?, String?) -> Unit) {
+                assertTrue(requireComplete)
+                assertTrue(fromMs < kickoff && toMs > kickoff && toMs < later.startMs)
+                throw IllegalStateException("Guide was replaced")
+            }
+        }
+        assertFailsWith<IllegalStateException> {
+            SportsMatcher(db).match(SportsMatcher.Input(listOf(target, later), listOf(espn, fox), emptyMap(), 0,
+                SportsSettings(), now, onlyEventId = target.id))
+        }
+    }
+
+    @Test
+    fun diskRestoreKeepsOtherGamesAndHonorsCompletedEmptyAndNonemptySearches() {
+        val saved = listOf(ChannelMatch(espn, 100, "Guide", null, null, false))
+        val fresh = listOf(ChannelMatch(fox, 100, "Guide", null, null, false))
+        val previousRun = mapOf("untouched" to saved, "new" to saved, "now-empty" to saved)
+        assertEquals(mapOf("untouched" to saved, "new" to fresh),
+            restoreUnsearchedMatches(previousRun, mapOf("new" to fresh), setOf("new", "now-empty")))
     }
 
     @Test

@@ -268,7 +268,7 @@ internal actual object EpgStore {
         return out
     }
 
-    actual fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit) {
+    actual fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit) {
         val db = readable ?: return
         // A page at a time, each small enough to come back in one go, so a guide update landing
         // part way through can't make the rest of the read fail (and close the app).
@@ -295,8 +295,10 @@ internal actual object EpgStore {
                     }
                 }
             } catch (e: IllegalStateException) {
+                if (requireComplete) throw e
                 return
             } catch (e: android.database.sqlite.SQLiteException) {
+                if (requireComplete) throw e
                 return
             }
             if (read < SCAN_PAGE) return
