@@ -203,13 +203,13 @@ private fun FeaturedCard(
                 modifier = Modifier.fillMaxWidth().align(Alignment.Center).padding(horizontal = NuvioTokens.Space.s8),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FeaturedTeam(sides[0], follows.followsTeam(ev.leagueId, sides[0].team.id), Modifier.weight(1f))
+                FeaturedTeam(sides[0], ev, hideScores, follows.followsTeam(ev.leagueId, sides[0].team.id), Modifier.weight(1f))
                 Text(
                     text = if (showScore) "${sides[0].score ?: "–"} – ${sides[1].score ?: "–"}" else if (sport(ev).homeFirst) "v" else "at",
                     style = if (showScore) MaterialTheme.typography.displaySmall else MaterialTheme.typography.titleLarge,
                     color = Color.White, fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
                 )
-                FeaturedTeam(sides[1], follows.followsTeam(ev.leagueId, sides[1].team.id), Modifier.weight(1f))
+                FeaturedTeam(sides[1], ev, hideScores, follows.followsTeam(ev.leagueId, sides[1].team.id), Modifier.weight(1f))
             }
         } else {
             Column(modifier = Modifier.align(Alignment.Center).padding(horizontal = NuvioTokens.Space.s16), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -242,12 +242,16 @@ private fun FeaturedCard(
 private fun sport(ev: SportsEvent): Sport = SportsCatalog.league(ev.leagueId)?.sport ?: Sport.OTHER
 
 @Composable
-private fun FeaturedTeam(side: Side, followed: Boolean, modifier: Modifier) {
+private fun FeaturedTeam(side: Side, ev: SportsEvent, hideScores: Boolean, followed: Boolean, modifier: Modifier) {
+    val sport = sport(ev)
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
-        TeamLogo(side.team, 56.dp)
+        MatchupLogo(side, 56.dp, sport, !hideScores && ev.state == GameState.LIVE)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
-            Text(side.team.name, style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.weight(1f, fill = false))
+            Text(side.rankedName, style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.weight(1f, fill = false))
             if (followed) Icon(Icons.Filled.Star, contentDescription = "You follow this team", tint = Color(0xFFF5C400), modifier = Modifier.size(NuvioTokens.Icon.xs))
+        }
+        if (sport == Sport.AMERICAN_FOOTBALL && !hideScores) side.record?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
         }
     }
 }
@@ -323,8 +327,11 @@ private fun LiveChannelCard(item: LiveOnChannel, now: Long, use24h: Boolean, hid
         if (sides.size == 2) {
             sides.forEach { s ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                    TeamLogo(s.team, 20.dp)
-                    Text(s.team.name, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    MatchupLogo(s, 20.dp, sport(ev), !hideScores && ev.state == GameState.LIVE)
+                    Text(s.rankedName, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (!hideScores && sport(ev) == Sport.AMERICAN_FOOTBALL) s.record?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1)
+                    }
                     if (showScore) Text(s.score ?: "–", style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Black)
                 }
             }

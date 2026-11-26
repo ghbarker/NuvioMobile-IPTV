@@ -618,6 +618,8 @@ private fun Scoreboard(
                     }
                     val followed = follows.followsTeam(ev.leagueId, s.team.id)
                     val sub = when {
+                        ev.state == GameState.PRE && !hide && sport(ev) == Sport.AMERICAN_FOOTBALL ->
+                            listOfNotNull(s.record, preGameLine(s, table, extras)).joinToString(" · ")
                         ev.state == GameState.PRE && !hide -> preGameLine(s, table, extras)
                         !hide -> table?.placeText(s.team.id)?.substringBefore(" in ")?.let { listOfNotNull(it, s.record).joinToString(" · ") } ?: s.record
                         else -> null
@@ -627,9 +629,9 @@ private fun Scoreboard(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
                     ) {
-                        TeamLogo(s.team, 56.dp)
+                        MatchupLogo(s, 56.dp, sport(ev), !hide && ev.state == GameState.LIVE)
                         Text(
-                            s.team.name + (if (followed) " ★" else ""),
+                            s.rankedName + (if (followed) " ★" else ""),
                             style = MaterialTheme.typography.titleSmall, color = Color.White,
                             fontWeight = if (ev.state == GameState.POST && s.winner) FontWeight.Black else FontWeight.Bold,
                             maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,

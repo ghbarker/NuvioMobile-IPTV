@@ -21,6 +21,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SportsBaseball
+import androidx.compose.material.icons.filled.SportsCricket
+import androidx.compose.material.icons.filled.SportsFootball
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.NotificationsNone
@@ -343,31 +346,50 @@ private fun ScoreBox(sides: List<Side>, loser: Side?) {
     }
 }
 
-/** One team on a card: logo, name (bold when it won), a star when you follow it, its record before the game. */
+/** Mark the live team's logo without taking width away from its name on small cards. */
 @Composable
-private fun TeamLine(side: Side, followed: Boolean, dim: Boolean, record: Boolean, logo: Dp = 24.dp, score: String? = null) {
+internal fun MatchupLogo(side: Side, size: Dp, sport: Sport, showOffense: Boolean) {
+    val marker = if (showOffense && side.onOffense) when (sport) {
+        Sport.AMERICAN_FOOTBALL -> Icons.Filled.SportsFootball
+        Sport.BASEBALL -> Icons.Filled.SportsBaseball
+        Sport.CRICKET -> Icons.Filled.SportsCricket
+        else -> null
+    } else null
+    if (marker == null) {
+        TeamLogo(side.team, size)
+        return
+    }
+    Box {
+        TeamLogo(side.team, size)
+        Icon(marker, contentDescription = if (sport == Sport.AMERICAN_FOOTBALL) "${side.team.name} has possession" else "${side.team.name} batting",
+            modifier = Modifier.align(Alignment.BottomEnd).size(if (size >= 40.dp) 20.dp else 14.dp)
+                .background(Color.Black, CircleShape).padding(1.dp), tint = Color.White)
+    }
+}
+
+@Composable
+private fun TeamLine(side: Side, sport: Sport, showOffense: Boolean, followed: Boolean, dim: Boolean, record: Boolean, logo: Dp = 24.dp, score: String? = null) {
     val tokens = MaterialTheme.nuvio
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
         modifier = Modifier.fillMaxWidth().heightIn(min = logo + 4.dp),
     ) {
-        TeamLogo(side.team, logo)
+        MatchupLogo(side, logo, sport, showOffense)
         Text(
-            text = side.team.name,
+            text = side.rankedName,
             style = MaterialTheme.typography.bodyMedium,
             color = if (dim) tokens.colors.textMuted else tokens.colors.textPrimary,
             fontWeight = if (dim) FontWeight.Medium else if (side.winner) FontWeight.Black else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier.weight(1f, fill = score != null),
         )
         if (followed) Icon(Icons.Filled.Star, contentDescription = "You follow this team", tint = Color(0xFFF5C400), modifier = Modifier.size(NuvioTokens.Icon.xs))
         if (record) side.record?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1)
         }
         if (score != null) {
-            Spacer(Modifier.weight(1f))
             Text(score, style = MaterialTheme.typography.bodyLarge, color = if (dim) tokens.colors.textMuted else tokens.colors.textPrimary, fontWeight = if (dim) FontWeight.Medium else FontWeight.Black)
         }
     }
@@ -448,7 +470,10 @@ internal fun GameCard(
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
                 if (sides.size == 2) {
                     val loser = if (ev.state == GameState.POST && sides.any { it.winner }) sides.firstOrNull { !it.winner } else null
-                    sides.forEach { s -> TeamLine(s, follows.followsTeam(ev.leagueId, s.team.id), dim = showScore && loser === s, record = !showScore && ev.state == GameState.PRE) }
+                    sides.forEach { s ->
+                        TeamLine(s, sport, !hideScores && ev.state == GameState.LIVE, follows.followsTeam(ev.leagueId, s.team.id),
+                            dim = showScore && loser === s, record = if (sport == Sport.AMERICAN_FOOTBALL) !hideScores else ev.state == GameState.PRE && !showScore)
+                    }
                 } else {
                     Text(eventHeadline(ev, league), style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     ev.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -531,7 +556,9 @@ internal fun RowCard(
         if (sides.size == 2) {
             val loser = if (ev.state == GameState.POST && sides.any { it.winner }) sides.firstOrNull { !it.winner } else null
             sides.forEach { s ->
-                TeamLine(s, follows.followsTeam(ev.leagueId, s.team.id), dim = showScore && loser === s, record = false, logo = 22.dp, score = if (showScore) s.score ?: "–" else null)
+                TeamLine(s, sport, !hideScores && ev.state == GameState.LIVE, follows.followsTeam(ev.leagueId, s.team.id),
+                    dim = showScore && loser === s, record = sport == Sport.AMERICAN_FOOTBALL && !hideScores,
+                    logo = 22.dp, score = if (showScore) s.score ?: "–" else null)
             }
         } else {
             Text(eventHeadline(ev, league), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
