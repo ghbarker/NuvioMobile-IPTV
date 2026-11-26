@@ -140,7 +140,7 @@ internal object SportsAddonSource {
                     score = ADDON_SCORE,
                     how = "From ${a.displayTitle}",
                     program = null,
-                    quality = SportsMatcher.nameQuality(s.info),
+                    quality = reportedSportsQuality(s.info)?.label,
                     catchup = false
                 )
             }

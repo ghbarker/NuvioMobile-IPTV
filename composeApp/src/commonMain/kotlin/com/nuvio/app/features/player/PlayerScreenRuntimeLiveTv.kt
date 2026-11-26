@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.model.LiveChannel
@@ -10,10 +11,14 @@ import com.nuvio.app.features.livetv.player.LiveTvCaptions
 import com.nuvio.app.features.livetv.multiview.LocalOpenMultiview
 import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
+import com.nuvio.app.features.livetv.sports.measuredSportsQuality
 import com.nuvio.app.features.livetv.ui.LiveTvPlayerOverlay
 import com.nuvio.app.features.livetv.ui.LiveTvViewState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -24,6 +29,39 @@ internal val PlayerScreenRuntime.isLiveTv: Boolean
 
 internal val PlayerScreenRuntime.isContinuousLivePlayback: Boolean
     get() = LiveTvPlayback.isContinuousLive(activeProviderAddonId, activeSourceUrl)
+
+/** Sample the current decoder after tune-in and on video-size changes without opening another stream. */
+@Composable
+internal fun PlayerScreenRuntime.RememberPlayingChannelQuality() {
+    if (!isContinuousLivePlayback) return
+    val channelKey = activeVideoId ?: return
+    val controller = playerController ?: return
+    val url = activeSourceUrl
+    if (playerControllerSourceUrl != url) return
+    val key = activePlaybackKey
+    val generation = livePlaybackGeneration
+    LaunchedEffect(controller, url, key, generation) {
+        snapshotFlow {
+            playbackSnapshot.takeIf { playbackSnapshotKey == key && it.isPlaying }?.videoHeight
+        }.filterNotNull().distinctUntilChanged().collectLatest {
+            suspend fun saveCurrentFormat(): Boolean {
+                val info = try { controller.getMediaInfo() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { return false }
+                if (key != activePlaybackKey || generation != livePlaybackGeneration ||
+                    controller !== playerController || playerControllerSourceUrl != url) return false
+                val quality = measuredSportsQuality(info.videoWidth, info.videoHeight, info.videoFrameRate) ?: return false
+                LiveTvPreferences.setChannelQuality(channelKey, quality.label)
+                return quality.frameRate > 0f
+            }
+            if (!saveCurrentFormat()) {
+                // Some engines expose the selected track just after the first playing callback.
+                delay(1_000)
+                saveCurrentFormat()
+            }
+        }
+    }
+}
 
 /**
  * Where the caption and audio choices are kept: per title, and for Live TV per channel — the one

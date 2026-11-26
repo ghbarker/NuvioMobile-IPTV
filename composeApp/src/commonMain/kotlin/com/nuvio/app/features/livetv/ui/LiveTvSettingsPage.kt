@@ -378,6 +378,8 @@ import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.action_save
 import nuvio.composeapp.generated.resources.livetv_sports_show
 import nuvio.composeapp.generated.resources.livetv_sports_show_description
+import nuvio.composeapp.generated.resources.livetv_sports_best_channel_first
+import nuvio.composeapp.generated.resources.livetv_sports_best_channel_first_description
 import nuvio.composeapp.generated.resources.livetv_sports_hide_scores
 import nuvio.composeapp.generated.resources.livetv_sports_score_delay
 import nuvio.composeapp.generated.resources.livetv_sports_score_delay_description
@@ -983,6 +985,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     checked = sports.showInSidebar,
                     isTablet = isTablet,
                     onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showInSidebar = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_best_channel_first),
+                    description = stringResource(Res.string.livetv_sports_best_channel_first_description),
+                    checked = sports.bestChannelFirst,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(bestChannelFirst = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(

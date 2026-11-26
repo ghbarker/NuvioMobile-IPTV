@@ -3043,6 +3043,12 @@
     <string name="livetv_sports_showing_it">SHOWING IT</string>
     <string name="livetv_sports_maybe">MAYBE</string>
     <string name="livetv_sports_your_pick">YOUR PICK</string>
+    <string name="livetv_sports_quality_measured">From playback</string>
+    <string name="livetv_sports_quality_reported">Reported by provider</string>
+    <string name="livetv_sports_quality_reported_format">%1$s reported</string>
+    <string name="livetv_sports_quality_saved">Saved quality</string>
+    <string name="livetv_sports_best_channel_first">Best Channel First</string>
+    <string name="livetv_sports_best_channel_first_description">List each feed by resolution and frame rate when you open a game.</string>
     <string name="livetv_sports_record">Record</string>
     <string name="livetv_sports_remind">Remind me</string>
     <string name="livetv_sports_reminded">Reminder set</string>
