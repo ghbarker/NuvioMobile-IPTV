@@ -49,6 +49,7 @@ internal fun PlayerScreenRuntime.liveLogoOr(fallback: String?): String? {
 internal fun PlayerScreenRuntime.switchLiveChannel(channel: LiveChannel, nowTitle: String?) {
     if (channel.key == activeVideoId && LiveTvPlayback.owns(activeProviderAddonId) && errorMessage == null) return
     cancelLiveEndReconnect(resetAttempts = true)
+    adaptiveBackupJob?.cancel()
     credentialRefreshJob?.cancel()
     credentialRefreshJob = scope.launch {
         try {

@@ -15,6 +15,8 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 /** One instance per full-screen, continuous network channel player. The existing UI pulse drives it. */
 @OptIn(UnstableApi::class)
 internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferSession) {
+    private val backupWatchdog = AdaptiveLiveBackupWatchdog()
+    private var backupRequested = false
     @Volatile private var pcm16 = false
     @Volatile private var tunneling = false
     private var lastSampleMs: Long? = null
@@ -45,7 +47,30 @@ internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferS
 
     fun onParametersChanged(value: PlaybackParameters) = session.onParametersChanged(value.asRate())
 
-    fun selectUserSpeed() = session.userSelectedRate()
+    fun selectUserSpeed() {
+        resetBackupWatch()
+        session.userSelectedRate()
+    }
+
+    private fun resetBackupWatch() {
+        backupWatchdog.reset()
+        backupRequested = false
+    }
+
+    /** Rechecked after a portal resolves a backup. Never interrupt a recovered or manual stream. */
+    fun takeBackupRequest(player: ExoPlayer): (() -> Boolean)? {
+        if (!backupRequested) return null
+        backupRequested = false
+        return {
+            lastSampleMs != null && pcm16 && !tunneling && player.isPlaying &&
+                player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM) &&
+                player.isCommandAvailable(Player.COMMAND_GET_TIMELINE) &&
+                player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH) &&
+                !player.isPlayingAd && !player.isSleepingForOffload && player.audioFormat != null &&
+                session.ownsFloor(player.playbackParameters.asRate()) &&
+                player.totalBufferedDuration in 0..AdaptiveLiveBufferPolicy.CRITICAL_BUFFER_MS
+        }
+    }
 
     fun userSpeed(player: ExoPlayer): Float {
         val params = player.playbackParameters
@@ -53,11 +78,13 @@ internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferS
     }
 
     fun suspend(player: ExoPlayer) {
+        resetBackupWatch()
         lastSampleMs = null
         apply(player, session.suspend(player.playbackParameters.asRate()))
     }
 
-    fun update(player: ExoPlayer, enabled: Boolean, foreground: Boolean, nowMs: Long) {
+    fun update(player: ExoPlayer, enabled: Boolean, foreground: Boolean, nowMs: Long, backupsEnabled: Boolean = false) {
+        if (!backupsEnabled) resetBackupWatch()
         if (!enabled || !foreground || !pcm16 || tunneling || !player.isPlaying ||
             !player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM) ||
             !player.isCommandAvailable(Player.COMMAND_GET_TIMELINE) ||
@@ -82,6 +109,9 @@ internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferS
             if (addedDelayMs >= AdaptiveLiveBufferPolicy.TARGET_BUFFER_MS) session.byteCap(bufferMs)
         }
         apply(player, session.sample(current, true, bufferMs, nowMs))
+        if (backupsEnabled && backupWatchdog.sample(bufferMs, nowMs, session.ownsFloor(player.playbackParameters.asRate()))) {
+            backupRequested = true
+        }
     }
 
     private fun apply(player: ExoPlayer, rate: AdaptiveLiveRate?) {

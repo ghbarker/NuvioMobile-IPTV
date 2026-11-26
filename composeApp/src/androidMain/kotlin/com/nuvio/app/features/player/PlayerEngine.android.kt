@@ -1109,6 +1109,9 @@ private fun ExoPlayerSurface(
                 override fun userPlaybackSpeed(currentSpeed: Float): Float =
                     liveBuffer?.userSpeed(exoPlayer) ?: currentSpeed
 
+                override fun takeAdaptiveLiveBackupRequest(): (() -> Boolean)? =
+                    liveBuffer?.takeBackupRequest(exoPlayer)
+
                 override fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {
                     nowPlayingController.updateMetadata(info)
                 }
@@ -1353,6 +1356,7 @@ private fun ExoPlayerSurface(
                         playerSettings.maxBufferMs >= AdaptiveLiveBufferPolicy.TARGET_BUFFER_MS),
                 foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED),
                 nowMs = SystemClock.elapsedRealtime(),
+                backupsEnabled = LiveTvPreferences.settings.value.autoBackupChannel,
             )
             dispatchExoPlayerSnapshot()
             delay(250L)

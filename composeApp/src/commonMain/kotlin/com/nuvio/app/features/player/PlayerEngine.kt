@@ -13,6 +13,8 @@ interface PlayerEngineController {
     fun setPlaybackSpeed(speed: Float)
     /** The speed chosen by the viewer, excluding temporary buffer recovery. */
     fun userPlaybackSpeed(currentSpeed: Float): Float = currentSpeed
+    /** One recovery signal from the active engine; the predicate expires as soon as playback recovers. */
+    fun takeAdaptiveLiveBackupRequest(): (() -> Boolean)? = null
     fun setMuted(muted: Boolean) {}
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>

@@ -43,8 +43,26 @@ class MobileAdaptiveLiveBufferTest {
         }
     }
 
-    private fun tick(times: Int = 1, enabled: Boolean = true) {
-        repeat(times) { adaptive.update(player, enabled, foreground = true, nowMs = 1_000L * seconds++) }
+    private fun tick(times: Int = 1, enabled: Boolean = true, backupsEnabled: Boolean = false) {
+        repeat(times) { adaptive.update(player, enabled, foreground = true, nowMs = 1_000L * seconds++, backupsEnabled = backupsEnabled) }
+    }
+
+    @Test fun onlyPersistentAdaptiveFloorCanRequestABackupAndPlaybackRecoveryInvalidatesIt() {
+        sink.configure(pcm, 0, null)
+        tick(85)
+        assertEquals(null, adaptive.takeBackupRequest(player))
+        tick(85, backupsEnabled = true)
+        val stillNeeded = requireNotNull(adaptive.takeBackupRequest(player))
+        assertEquals(true, stillNeeded())
+        assertEquals(null, adaptive.takeBackupRequest(player))
+        bufferMs = 20_000
+        assertEquals(false, stillNeeded())
+        tick(30, backupsEnabled = true)
+        adaptive.selectUserSpeed()
+        player.playbackParameters = PlaybackParameters(.9f)
+        bufferMs = 1_000
+        tick(125, backupsEnabled = true)
+        assertEquals(null, adaptive.takeBackupRequest(player))
     }
 
     @Test fun decodedLiveAudioSlowsAtNaturalPitchAndTheViewerCanTakeOver() {
