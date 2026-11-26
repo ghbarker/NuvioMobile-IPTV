@@ -327,44 +327,41 @@ internal fun HighlightsButton(onClick: () -> Unit) {
 
 /** The two scores stacked in a small dark box at a card's right; the loser's dimmed once it's over. */
 @Composable
-private fun ScoreBox(sides: List<Side>, loser: Side?) {
+private fun ScoreBox(sides: List<Side>, loser: Side?, sport: Sport, showOffense: Boolean) {
     val tokens = MaterialTheme.nuvio
     Column(
         modifier = Modifier.widthIn(min = 44.dp).clip(RoundedCornerShape(NuvioTokens.Radius.md)).background(tokens.colors.background.copy(alpha = 0.7f))
             .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = if (showOffense && sides.any { it.onOffense }) Alignment.End else Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
     ) {
         sides.forEach { s ->
-            Text(
-                s.score ?: "–",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (s === loser) tokens.colors.textMuted else tokens.colors.textPrimary,
-                fontWeight = if (s === loser) FontWeight.Medium else FontWeight.Black,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+                OffenseMarker(s, sport, showOffense)
+                Text(
+                    s.score ?: "–",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (s === loser) tokens.colors.textMuted else tokens.colors.textPrimary,
+                    fontWeight = if (s === loser) FontWeight.Medium else FontWeight.Black,
+                )
+            }
         }
     }
 }
 
-/** Mark the live team's logo without taking width away from its name on small cards. */
 @Composable
-internal fun MatchupLogo(side: Side, size: Dp, sport: Sport, showOffense: Boolean) {
-    val marker = if (showOffense && side.onOffense) when (sport) {
+internal fun OffenseMarker(side: Side, sport: Sport, showOffense: Boolean, size: Dp = 14.dp) {
+    if (!showOffense || !side.onOffense) return
+    val marker = when (sport) {
         Sport.AMERICAN_FOOTBALL -> Icons.Filled.SportsFootball
         Sport.BASEBALL -> Icons.Filled.SportsBaseball
         Sport.CRICKET -> Icons.Filled.SportsCricket
-        else -> null
-    } else null
-    if (marker == null) {
-        TeamLogo(side.team, size)
-        return
+        else -> return
     }
-    Box {
-        TeamLogo(side.team, size)
-        Icon(marker, contentDescription = if (sport == Sport.AMERICAN_FOOTBALL) "${side.team.name} has possession" else "${side.team.name} batting",
-            modifier = Modifier.align(Alignment.BottomEnd).size(if (size >= 40.dp) 20.dp else 14.dp)
-                .background(Color.Black, CircleShape).padding(1.dp), tint = Color.White)
-    }
+    Icon(
+        marker, contentDescription = if (sport == Sport.AMERICAN_FOOTBALL) "${side.team.name} has possession" else "${side.team.name} batting",
+        modifier = Modifier.size(size).background(Color.Black, CircleShape).padding(1.dp), tint = Color.White,
+    )
 }
 
 @Composable
@@ -375,7 +372,7 @@ private fun TeamLine(side: Side, sport: Sport, showOffense: Boolean, followed: B
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
         modifier = Modifier.fillMaxWidth().heightIn(min = logo + 4.dp),
     ) {
-        MatchupLogo(side, logo, sport, showOffense)
+        TeamLogo(side.team, logo)
         Text(
             text = side.rankedName,
             style = MaterialTheme.typography.bodyMedium,
@@ -383,12 +380,13 @@ private fun TeamLine(side: Side, sport: Sport, showOffense: Boolean, followed: B
             fontWeight = if (dim) FontWeight.Medium else if (side.winner) FontWeight.Black else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = score != null),
+            modifier = Modifier.weight(1f, fill = score != null || (showOffense && side.onOffense)),
         )
         if (followed) Icon(Icons.Filled.Star, contentDescription = "You follow this team", tint = Color(0xFFF5C400), modifier = Modifier.size(NuvioTokens.Icon.xs))
         if (record) side.record?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1)
         }
+        OffenseMarker(side, sport, showOffense)
         if (score != null) {
             Text(score, style = MaterialTheme.typography.bodyLarge, color = if (dim) tokens.colors.textMuted else tokens.colors.textPrimary, fontWeight = if (dim) FontWeight.Medium else FontWeight.Black)
         }
@@ -471,7 +469,7 @@ internal fun GameCard(
                 if (sides.size == 2) {
                     val loser = if (ev.state == GameState.POST && sides.any { it.winner }) sides.firstOrNull { !it.winner } else null
                     sides.forEach { s ->
-                        TeamLine(s, sport, !hideScores && ev.state == GameState.LIVE, follows.followsTeam(ev.leagueId, s.team.id),
+                        TeamLine(s, sport, !showScore && !hideScores && ev.state == GameState.LIVE, follows.followsTeam(ev.leagueId, s.team.id),
                             dim = showScore && loser === s, record = if (sport == Sport.AMERICAN_FOOTBALL) !hideScores else ev.state == GameState.PRE && !showScore)
                     }
                 } else {
@@ -496,7 +494,7 @@ internal fun GameCard(
             }
             if (sides.size == 2 && showScore) {
                 val loser = if (ev.state == GameState.POST && sides.any { it.winner }) sides.firstOrNull { !it.winner } else null
-                ScoreBox(sides, loser)
+                ScoreBox(sides, loser, sport, ev.state == GameState.LIVE)
             }
         }
         ev.situation?.takeIf { !hideScores && ev.state == GameState.LIVE }?.let {

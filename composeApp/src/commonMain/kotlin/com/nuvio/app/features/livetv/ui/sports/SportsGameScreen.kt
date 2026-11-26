@@ -629,13 +629,17 @@ private fun Scoreboard(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
                     ) {
-                        MatchupLogo(s, 56.dp, sport(ev), !hide && ev.state == GameState.LIVE)
-                        Text(
-                            s.rankedName + (if (followed) " ★" else ""),
-                            style = MaterialTheme.typography.titleSmall, color = Color.White,
-                            fontWeight = if (ev.state == GameState.POST && s.winner) FontWeight.Black else FontWeight.Bold,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                        )
+                        TeamLogo(s.team, 56.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+                            Text(
+                                s.rankedName + (if (followed) " ★" else ""),
+                                style = MaterialTheme.typography.titleSmall, color = Color.White,
+                                fontWeight = if (ev.state == GameState.POST && s.winner) FontWeight.Black else FontWeight.Bold,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            OffenseMarker(s, sport(ev), !hide && ev.state == GameState.LIVE, size = 20.dp)
+                        }
                         sub?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
                     }
                 }
