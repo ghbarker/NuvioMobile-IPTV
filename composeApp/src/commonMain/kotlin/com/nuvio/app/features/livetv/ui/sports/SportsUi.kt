@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -329,21 +330,35 @@ internal fun HighlightsButton(onClick: () -> Unit) {
 @Composable
 private fun ScoreBox(sides: List<Side>, loser: Side?, sport: Sport, showOffense: Boolean) {
     val tokens = MaterialTheme.nuvio
-    Column(
-        modifier = Modifier.widthIn(min = 44.dp).clip(RoundedCornerShape(NuvioTokens.Radius.md)).background(tokens.colors.background.copy(alpha = 0.7f))
-            .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
-        horizontalAlignment = if (showOffense && sides.any { it.onOffense }) Alignment.End else Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
-    ) {
-        sides.forEach { s ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
-                OffenseMarker(s, sport, showOffense)
+    val showMarker = showOffense && sides.any { it.onOffense }
+    val iconSize = 14.dp
+    val rowSpacing = Arrangement.spacedBy(NuvioTokens.Space.s4)
+    Box {
+        Column(
+            modifier = Modifier.padding(start = if (showMarker) iconSize + NuvioTokens.Space.s4 else 0.dp)
+                .testTag("sports_score_box").widthIn(min = 44.dp).clip(RoundedCornerShape(NuvioTokens.Radius.md))
+                .background(tokens.colors.background.copy(alpha = 0.7f))
+                .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = rowSpacing,
+        ) {
+            sides.forEach { s ->
                 Text(
                     s.score ?: "–",
                     style = MaterialTheme.typography.titleMedium,
                     color = if (s === loser) tokens.colors.textMuted else tokens.colors.textPrimary,
                     fontWeight = if (s === loser) FontWeight.Medium else FontWeight.Black,
                 )
+            }
+        }
+        if (showMarker) {
+            // Match the score rows' height, padding and gap so ownership lines up after a turnover.
+            Column(Modifier.matchParentSize().padding(vertical = NuvioTokens.Space.s6), verticalArrangement = rowSpacing) {
+                sides.forEach { s ->
+                    Box(Modifier.width(iconSize).weight(1f), contentAlignment = Alignment.Center) {
+                        OffenseMarker(s, sport, showOffense, size = iconSize)
+                    }
+                }
             }
         }
     }
