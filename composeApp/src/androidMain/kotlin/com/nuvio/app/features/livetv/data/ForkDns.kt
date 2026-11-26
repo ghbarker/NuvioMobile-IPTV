@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * Answers are remembered for a few minutes, so only the first lookup of a server is slower.
  * All HTTPS fallback attempts share an eight-second budget. The normal Android resolver
  * retains its platform timing (including local names and lookups while the VPN is on).
- * Per device (not synced): which lookup works depends on the network the device is on.
+ * Android phones can share this choice through Setup Sync. Cached answers stay device-local.
  */
 internal object ForkDns {
     private const val FILE = "livetv_dns"

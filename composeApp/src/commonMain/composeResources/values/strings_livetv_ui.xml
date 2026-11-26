@@ -77,7 +77,7 @@
     <string name="livetv_ui_sync_earlier_msg">This replaces the setup on this device and the saved copy with the one saved before the last change.</string>
     <string name="livetv_ui_cancel">Cancel</string>
     <string name="livetv_ui_continue">Continue</string>
-    <string name="livetv_ui_sync_save_msg">Save your playlists, guides, favorites and Sports and Calendar choices so they follow you to your other devices. Your IPTV logins are included, kept encrypted. This phone keeps its own look and layout. In Live TV settings (Setup Sync) you can change what's synced, turn it off or delete the saved copy any time.</string>
+    <string name="livetv_ui_sync_save_msg">Save your playlists, guides, favorites and settings for your other devices. Your IPTV logins are encrypted. Your mobile devices can share their own layout. In Live TV settings (Setup Sync) you can choose what to sync, turn it off or delete the saved copy.</string>
     <string name="livetv_ui_sync_choose_msg">This device has a different setup. Combine keeps playlists and guides from both. Use the Saved Setup replaces this device's setup with the saved one.</string>
     <string name="livetv_ui_sync_on">On</string>
     <string name="livetv_ui_sync_last">last synced %1$s</string>
@@ -96,7 +96,7 @@
     <string name="livetv_ui_syncpart_behavior">Behavior and options</string>
     <string name="livetv_ui_syncpart_behavior_desc">How often lists and guides refresh, recording and catch-up options, sorting, search sources and Calendar choices. Not the look, so it is shared with your phone too.</string>
     <string name="livetv_ui_syncpart_look">Look and layout</string>
-    <string name="livetv_ui_syncpart_look_desc">Themes, menu, card styles and other visual options.</string>
+    <string name="livetv_ui_syncpart_look_desc">Layout and visual options for your mobile devices.</string>
     <plurals name="livetv_ui_groups">
         <item quantity="one">%1$d group</item>
         <item quantity="other">%1$d groups</item>

@@ -50,6 +50,7 @@ internal object LiveTvPreferencesAndroid {
             loadDevice = { read(devicePreferences) },
             saveDevice = { data -> write(devicePreferences, data) },
         )
+        com.nuvio.app.features.livetv.data.MobileSetupPreferencesAndroid(context, LiveTvPreferences).install()
         initialized = true
     }
 

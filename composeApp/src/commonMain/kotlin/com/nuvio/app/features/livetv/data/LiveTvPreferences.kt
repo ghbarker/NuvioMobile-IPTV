@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -582,6 +583,11 @@ internal object LiveTvCodec {
  */
 internal open class LiveTvPreferencesStore {
     internal open val usesPlatformVpnBackup: Boolean get() = false
+    internal var readPlatformSettings: () -> Map<String, PrefValue> = { emptyMap() }
+    internal var restorePlatformSettings: (Map<String, PrefValue>) -> Unit = {}
+    internal var ownsPlatformSetting: (String) -> Boolean = { false }
+    private val platformChanges = MutableStateFlow(0L)
+    fun platformSettingsChanged() = platformChanges.update { it + 1 }
 
     private val lock = SynchronizedObject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -1206,6 +1212,8 @@ internal open class LiveTvPreferencesStore {
     fun updateSettings(transform: (LiveTvSettings) -> LiveTvSettings) {
         edit { p -> writeSettings(p, transform(readSettings(p))) }
     }
+
+    internal val settingDefaults by lazy { mutableMapOf<String, PrefValue>().also { writeSettings(it, LiveTvSettings()) }.toMap() }
 
     private fun writeSettings(p: MutableMap<String, PrefValue>, s: LiveTvSettings) {
         p[LiveTvKeys.showInSidebar] = s.showInSidebar
@@ -1841,7 +1849,7 @@ internal open class LiveTvPreferencesStore {
     // ---------- sync ----------
 
     /** Fires whenever anything in Live TV's stored data changes. */
-    val changes: Flow<Unit> = _data.map { }
+    val changes: Flow<Unit> = combine(_data, platformChanges) { _, _ -> }
 
     private fun randomId(length: Int): String {
         val alphabet = "0123456789abcdef"

@@ -87,7 +87,8 @@ internal object LiveTvBackup {
         val localEpgs = LiveTvCodec.decodeEpgs(local.str(LiveTvKeys.epgs)).associateBy { it.id }
         // Remove synced keys the other device doesn't have, then write everything it does.
         local.keys.filter {
-            it !in LiveTvKeys.SYNC_EXCLUDED && !data.containsKey(it) && local[it] !is PrefValue.UnavailableBackupSecret
+            it !in LiveTvKeys.SYNC_EXCLUDED && !data.containsKey(it) && !MobileSetupSettings.isPortableKey(it) &&
+                local[it] !is PrefValue.UnavailableBackupSecret
         }.forEach { p.remove(it) }
         data.forEach { (name, element) ->
             if (name in LiveTvKeys.SYNC_EXCLUDED) return@forEach
@@ -173,6 +174,12 @@ internal object LiveTvBackup {
 /** This device's Live TV setup for sync (see [LiveTvBackup.exportForSync]). */
 internal fun LiveTvPreferencesStore.exportForSync(): JsonObject {
     val data = LiveTvBackup.exportForSync(rawData.value).toMutableMap()
+    val mobile = readPlatformSettings().toMutableMap()
+    for ((key, value) in rawData.value) {
+        if (MobileSetupSettings.isLocalLayout(key, settingDefaults))
+            mobile[MobileSetupSettings.LAYOUT + key] = value
+    }
+    data.putAll(LiveTvBackup.exportForSync(mobile.entries.sortedBy { it.key }.associate { it.toPair() }))
     if (usesPlatformVpnBackup) exportVpnBackup(data["vpn_profiles_v1"]?.let { (it as? JsonObject)?.optString("v") })?.let { native ->
         // Android owns the encrypted native copy; migrate then remove any older plaintext preference.
         if (rawData.value.containsKey("vpn_profiles_v1")) edit { it.remove("vpn_profiles_v1") }
@@ -188,20 +195,42 @@ internal fun LiveTvPreferencesStore.exportForSync(): JsonObject {
 internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject, applyVpnBackup: Boolean = true): Set<String> {
     // Validate before native VPN restore or any preference changes.
     UsenetBackupCompatibility.validate(data)
+    data.forEach { (key, entry) ->
+        if (key in MobileSetupSettings.seekKeys || key.startsWith(MobileSetupSettings.PREFIX)) {
+            require(entry is JsonObject && MobileSetupSettings.validEntry(key, entry)) { "Invalid mobile setup preference" }
+        }
+    }
     val nativeVpnRestored = applyVpnBackup && usesPlatformVpnBackup &&
         data.optJSONObject("vpn_profiles_v1")?.optString("v")?.let { restoreVpnBackup(it) } == true
     val preferences = if (usesPlatformVpnBackup && (nativeVpnRestored || !applyVpnBackup)) {
         JsonObject(data.filterKeys { it != "vpn_profiles_v1" })
     } else data
     var changed: Set<String> = emptySet()
+    var nativeChoices = emptyMap<String, PrefValue>()
     edit { p ->
         val imported = LiveTvBackup.importInto(p, preferences)
         changed = imported.changed
+        val restored = imported.data.toMutableMap()
+        for ((key, value) in imported.data) {
+            if (!key.startsWith(MobileSetupSettings.LAYOUT)) continue
+            val raw = key.removePrefix(MobileSetupSettings.LAYOUT)
+            if (MobileSetupSettings.isLocalLayout(raw, settingDefaults) &&
+                settingDefaults[raw.replace(LiveTvKeys.PROFILE_SUFFIX, "")]?.let { it::class == value::class } == true
+            ) {
+                restored[raw] = value
+                restored.remove(key)
+            }
+        }
+        // A missing entry in an older backup is not a reset. Device-native preferences have
+        // one owner; a platform that does not implement them can carry them opaquely.
+        nativeChoices = restored.filterKeys { it in preferences && ownsPlatformSetting(it) }
+        restored.keys.removeAll { ownsPlatformSetting(it) }
         p.clear()
-        p.putAll(imported.data)
+        p.putAll(restored)
         // A setup from an older version: its one-for-everything time shifts onto each source.
         moveTimeShifts(p)
     }
+    restorePlatformSettings(nativeChoices)
     return changed
 }
 

@@ -1,5 +1,9 @@
 package com.nuvio.app.features.profiles
 
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.data.MobileSetupSettings
+import com.nuvio.app.features.livetv.data.PrefValue
+
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
@@ -88,8 +92,8 @@ object ProfileRepository {
 
     fun setRememberLastProfileEnabled(enabled: Boolean) {
         if (_state.value.rememberLastProfileEnabled == enabled) return
-
         _state.value = _state.value.copy(rememberLastProfileEnabled = enabled)
+        LiveTvPreferences.edit { it[MobileSetupSettings.REMEMBER_PROFILE] = PrefValue.Bool(enabled) }
         persist()
     }
 

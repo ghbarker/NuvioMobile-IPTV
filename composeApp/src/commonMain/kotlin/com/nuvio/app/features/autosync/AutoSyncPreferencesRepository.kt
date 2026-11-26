@@ -65,6 +65,11 @@ internal object AutoSyncPreferencesRepository {
         lastStartupPlaybackKey = null
     }
 
+    internal fun reloadAfterRestore() {
+        loadedProfileId = null
+        ensureLoaded()
+    }
+
     fun setPreferredSubtitleAutoSyncOnStart(enabled: Boolean) {
         ensureLoaded()
         if (_preferredSubtitleAutoSyncOnStart.value == enabled) return

@@ -38,6 +38,7 @@ actual object ProfileStorage {
     }
 
     actual fun onProfileRemoved(id: Int) {
+        com.nuvio.app.features.livetv.data.MobileSetupPreferencesAndroid.onProfileRemoved(id)
         if (preferences != null) com.nuvio.vpn.android.VpnPlaybackProtection.removeUserProfile(id)
     }
 
