@@ -16,6 +16,7 @@ internal object MobileSetupSettings {
     const val SEEK_4K = "seek_thumbs_include_4k"
     const val SEEK_WHEN = "seek_thumbs_when"
     const val SEEK_MB = "seek_thumbs_storage_mb"
+    const val CHOSE_UPDATE_CHANNEL = "${PREFIX}chose_update_channel"
     const val REMEMBER_PROFILE = "${PREFIX}remember_last_profile"
     const val PLUGINS_ENABLED = "plugins_enabled"
     const val PLUGINS_GROUPED = "group_streams_by_repository"
