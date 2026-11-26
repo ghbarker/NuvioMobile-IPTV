@@ -54,4 +54,9 @@ internal object AppIconRepository {
         if (!current.changeFailed) return
         _state.value = current.copy(changeFailed = false)
     }
+
+    internal fun onLauncherIconRestored(icon: AppIconOption) {
+        hasLoaded = true
+        _state.value = AppIconSettingsState(selected = icon)
+    }
 }

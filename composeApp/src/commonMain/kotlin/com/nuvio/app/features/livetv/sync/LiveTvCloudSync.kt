@@ -224,9 +224,18 @@ internal object LiveTvCloudSync {
                         reply.code == 404 -> "There is no earlier copy yet."
                         reply.code != 200 || data == null -> failText(reply.code)
                         else -> {
-                            applyShared(data)
-                            when (val outcome = putSetup(reply.json?.optInt("currentRevision") ?: 0, data)) {
-                                is Put.Saved -> { saved(uid, data, emptySet()); "Restored the earlier copy." }
+                            val revision = reply.json?.optInt("currentRevision") ?: 0
+                            val restored = if (prefs.syncHasSources(data)) data else when (val latest = fetch()) {
+                                is Remote.Found -> CloudPreferencePatch.overlay(latest.data, data)
+                                is Remote.Failed -> return@runCatching failText(latest.code)
+                                Remote.None -> CloudPreferencePatch.onlyChoices(data)
+                            }
+                            when (val outcome = putSetup(revision, restored)) {
+                                is Put.Saved -> {
+                                    applyShared(data)
+                                    saved(uid, restored, emptySet())
+                                    "Restored the earlier copy."
+                                }
                                 else -> putText(outcome)
                             }
                         }
@@ -275,8 +284,8 @@ internal object LiveTvCloudSync {
                         "Using your saved Live TV setup."
                     } else {
                         val local = localView()
-                        val remoteView = SyncParts.strip(remote.data)
-                        val merged = drive.merge(null, local, remoteView, false, removedHere)
+                        val remoteView = initialUpload(SyncParts.strip(remote.data))
+                        val merged = mergeSetups(null, local, remoteView, removedHere)
                         if (merged.toString() != local.toString()) applyShared(merged)
                         if (merged.toString() == remoteView.toString()) {
                             saved(uid, remote.data, emptySet())
@@ -323,14 +332,14 @@ internal object LiveTvCloudSync {
         if (!explicit && store.getBoolean(KEY_DECLINED + uid, false)) return
         runCatching {
             val local = prefs.exportForSync()
-            val hasLocal = prefs.syncHasSources(local)
+            val hasLocal = prefs.syncHasSources(local) || CloudPreferencePatch.hasChoices(SyncParts.strip(local), explicit)
             val remote = fetch()
             when {
                 remote is Remote.Failed -> {
                     if (explicit) _state.value = _state.value.copy(message = failText(remote.code))
                 }
                 remote is Remote.Found && usable(remote.data) -> {
-                    if (!hasLocal) {
+                    if (!prefs.syncHasSources(local) && !CloudPreferencePatch.hasChoices(SyncParts.strip(local), false)) {
                         // A device with nothing set up, signing in to an account that has a setup.
                         applyShared(remote.data)
                         saved(uid, remote.data, emptySet())
@@ -344,11 +353,11 @@ internal object LiveTvCloudSync {
                     }
                 }
                 else -> {
-                    // Nothing usable saved for this account (none, or one with no playlists or guides).
+                    // A source-free setup can start with just the preferences the person has chosen.
                     val savedRevision = (remote as? Remote.Found)?.revision ?: 0
                     when {
                         !hasLocal -> if (explicit) setEnabled(uid, true)
-                        explicit -> backUpFirst(uid, savedRevision, SyncParts.strip(local))
+                        explicit -> backUpFirst(uid, savedRevision, initialUpload(SyncParts.strip(local)))
                         else -> _state.value = _state.value.copy(prompt = CloudPrompt.BackUp)
                     }
                 }
@@ -406,7 +415,7 @@ internal object LiveTvCloudSync {
         repeat(3) {
             val remote = fetch()
             val localFull = prefs.exportForSync()
-            val local = SyncParts.strip(localFull)
+            val local = initialUpload(SyncParts.strip(localFull))
             val removedHere = prefs.removedSourceIds()
             when {
                 remote is Remote.Failed -> {
@@ -414,13 +423,13 @@ internal object LiveTvCloudSync {
                     return failText(remote.code)
                 }
                 remote is Remote.Found && usable(remote.data) -> {
-                    val remoteView = SyncParts.strip(remote.data)
-                    val merged = drive.merge(readBase(uid), SyncParts.freshen(local, remoteView), remoteView, false, removedHere)
+                    val remoteView = initialUpload(SyncParts.strip(remote.data))
+                    val merged = mergeSetups(readBase(uid), SyncParts.freshen(local, remoteView), remoteView, removedHere)
                     val changedHere = merged.toString() != local.toString()
                     if (changedHere) {
                         val keys = (merged.keys + local.keys).filter { merged[it] != local[it] }
                         com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Sync: applied changes from your other devices (${keys.take(6).joinToString()}${if (keys.size > 6) "…" else ""})")
-                        apply(SyncParts.keep(merged, localFull))
+                        applyShared(merged, localFull)
                     }
                     val news = if (changedHere) UPDATED_TEXT else null
                     val mergedFull = SyncParts.keep(merged, remote.data)
@@ -436,10 +445,11 @@ internal object LiveTvCloudSync {
                 }
                 else -> {
                     // Nothing usable saved: never let that empty this device; save its setup if it has one.
-                    if (!prefs.syncHasSources(localFull)) return null
+                    if (!prefs.syncHasSources(localFull) && !CloudPreferencePatch.hasChoices(local)) return null
                     val savedRevision = (remote as? Remote.Found)?.revision ?: 0
-                    when (val result = putSetup(savedRevision, local)) {
-                        is Put.Saved -> { saved(uid, local, removedHere); return null }
+                    val upload = initialUpload(local)
+                    when (val result = putSetup(savedRevision, upload)) {
+                        is Put.Saved -> { saved(uid, upload, removedHere); return null }
                         Put.Conflict -> Unit
                         else -> return putText(result)
                     }
@@ -449,8 +459,27 @@ internal object LiveTvCloudSync {
         return "Couldn't finish syncing. Will try again."
     }
 
+    private fun initialUpload(local: JsonObject): JsonObject =
+        if (prefs.syncHasSources(local)) local else CloudPreferencePatch.onlyChoices(local)
+
+    private fun mergeSetups(base: JsonObject?, local: JsonObject, remote: JsonObject, removed: Set<String>): JsonObject {
+        val localHasSources = prefs.syncHasSources(local)
+        val remoteHasSources = prefs.syncHasSources(remote)
+        if (localHasSources && remoteHasSources) return drive.merge(base, local, remote, false, removed)
+        // A device with no sources contributes preference edits. Empty generated login/VPN records
+        // cannot replace the configured side's sources, even on the first merge without a base.
+        val withSources = when {
+            localHasSources -> local
+            remoteHasSources -> remote
+            else -> JsonObject(emptyMap())
+        }
+        val left = if (localHasSources) local else CloudPreferencePatch.overlay(withSources, local)
+        val right = if (remoteHasSources) remote else CloudPreferencePatch.overlay(withSources, remote)
+        return drive.merge(base, left, right, false, removed)
+    }
+
     /** This device's setup without the parts Setup Sync is switched off for. */
-    private fun localView(): JsonObject = SyncParts.strip(prefs.exportForSync())
+    private fun localView(): JsonObject = initialUpload(SyncParts.strip(prefs.exportForSync()))
 
     /** Local preparation failures can happen before a request or while recording its success. */
     private fun localHash(): String = try {
@@ -470,10 +499,16 @@ internal object LiveTvCloudSync {
      * any saved setup counts: another device's copy may be the only one that has them.
      */
     private fun usable(data: JsonObject): Boolean =
-        prefs.syncHasSources(data) || (SyncParts.isOff(SyncPart.LOGINS) && data.isNotEmpty())
+        prefs.syncHasSources(data) || CloudPreferencePatch.hasChoices(data) ||
+            (SyncParts.isOff(SyncPart.LOGINS) && data.isNotEmpty())
 
     /** Writes a saved setup into this device, leaving the parts switched off as they are here. */
-    private suspend fun applyShared(data: JsonObject) = apply(SyncParts.keep(SyncParts.strip(data), prefs.exportForSync()))
+    private suspend fun applyShared(data: JsonObject) = applyShared(data, prefs.exportForSync())
+
+    private suspend fun applyShared(data: JsonObject, current: JsonObject) {
+        val incoming = if (prefs.syncHasSources(data)) data else CloudPreferencePatch.overlay(current, data)
+        apply(SyncParts.keep(SyncParts.strip(incoming), current))
+    }
 
     /** A part of the setup was switched on or off: sync soon so the saved copy catches up. */
     fun partsChanged() {
