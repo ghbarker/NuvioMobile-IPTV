@@ -13,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -86,12 +87,25 @@ class MobileAdaptiveLiveBufferTest {
         verify(exactly = 0) { player.playbackParameters = any() }
     }
 
+    @Test fun timePriorityKeepsRebuildingUntilItsMinimumEvenAfterTheByteTargetIsReached() {
+        sink.configure(pcm, 0, null)
+        val load = mockk<DefaultLoadControl>()
+        every { load.allocator.totalBytesAllocated } returns 4_000
+        adaptive.observeByteBudget(load, 4_000, minBufferedMs = 5_000)
+        bufferMs = 4_999
+        tick(25)
+        assertTrue(rate.speed < 1f)
+        bufferMs = 5_000
+        tick(50)
+        assertEquals(PlaybackParameters.DEFAULT, rate)
+    }
+
     @Test fun anExhaustedAllocatorAndALiveBufferThatCannotGrowBothBoundDelay() {
         sink.configure(pcm, 0, null)
         val load = mockk<DefaultLoadControl>()
         var bytesAllocated = 0
         every { load.allocator.totalBytesAllocated } answers { bytesAllocated }
-        adaptive.observeByteBudget(load, 4_000)
+        adaptive.observeByteBudget(load, 4_000, minBufferedMs = 0)
         tick(25)
         bytesAllocated = 4_000
         tick(50)

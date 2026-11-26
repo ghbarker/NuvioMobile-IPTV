@@ -19,10 +19,12 @@ internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferS
     @Volatile private var tunneling = false
     private var lastSampleMs: Long? = null
     private var addedDelayMs = 0.0
-    private var byteBudgetReached: (() -> Boolean)? = null
+    private var byteBudgetReached: ((Long) -> Boolean)? = null
 
-    fun observeByteBudget(loadControl: DefaultLoadControl, bytes: Int) {
-        byteBudgetReached = { loadControl.allocator.totalBytesAllocated >= bytes }
+    fun observeByteBudget(loadControl: DefaultLoadControl, bytes: Int, minBufferedMs: Int) {
+        byteBudgetReached = { bufferedMs ->
+            bufferedMs >= minBufferedMs && loadControl.allocator.totalBytesAllocated >= bytes
+        }
     }
 
     fun trackAudio(sink: AudioSink, hardwarePlaybackParameters: Boolean): AudioSink {
@@ -72,7 +74,7 @@ internal class MobileAdaptiveLiveBuffer(private val session: AdaptiveLiveBufferS
         val current = player.playbackParameters.asRate()
         val bufferMs = player.totalBufferedDuration
         if (bufferMs >= AdaptiveLiveBufferPolicy.TARGET_BUFFER_MS) addedDelayMs = 0.0
-        else if (byteBudgetReached?.invoke() == true) session.byteCap(bufferMs)
+        else if (byteBudgetReached?.invoke(bufferMs) == true) session.byteCap(bufferMs)
         else if (previous != null && session.owns(current)) {
             addedDelayMs += (nowMs - previous).coerceIn(0L, 2_000L) * (1.0 - current.speed)
             // A custom time/byte ceiling or constantly depleted source may never hold 20 seconds.

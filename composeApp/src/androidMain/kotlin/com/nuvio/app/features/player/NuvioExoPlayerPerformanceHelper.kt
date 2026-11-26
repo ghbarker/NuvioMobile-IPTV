@@ -86,7 +86,7 @@ internal object NuvioExoPlayerPerformanceHelper {
         context: Context,
         bufferSettings: PlaybackBufferSettings = PlaybackBufferSettings(),
         localFileSource: Boolean = false,
-        onExplicitByteBudget: ((DefaultLoadControl, Int) -> Unit)? = null,
+        onExplicitByteBudget: ((loadControl: DefaultLoadControl, bytes: Int, minBufferedMs: Int) -> Unit)? = null,
     ): DefaultLoadControl {
         if (localFileSource && !bufferSettings.enabled) {
             return localFileLoadControl()
@@ -153,7 +153,7 @@ internal object NuvioExoPlayerPerformanceHelper {
     private fun buildCustomLoadControl(
         context: Context,
         bufferSettings: PlaybackBufferSettings,
-        onExplicitByteBudget: ((DefaultLoadControl, Int) -> Unit)?,
+        onExplicitByteBudget: ((loadControl: DefaultLoadControl, bytes: Int, minBufferedMs: Int) -> Unit)?,
     ): DefaultLoadControl {
         val maxTargetMb = if (enabled) {
             getWarningNativeMemoryLimitMb(context)
@@ -187,7 +187,8 @@ internal object NuvioExoPlayerPerformanceHelper {
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(settings.backBufferDurationMs, true)
             .build()
-            .also { onExplicitByteBudget?.invoke(it, targetBytes) }
+            // This load control keeps loading past the byte target until it has its time minimum.
+            .also { onExplicitByteBudget?.invoke(it, targetBytes, settings.minBufferMs) }
     }
 
     private fun nativeLoadControl(
@@ -197,7 +198,7 @@ internal object NuvioExoPlayerPerformanceHelper {
         bufferForPlaybackMs: Int,
         bufferForPlaybackAfterRebufferMs: Int,
         backBufferMs: Int,
-        onExplicitByteBudget: ((DefaultLoadControl, Int) -> Unit)? = null,
+        onExplicitByteBudget: ((loadControl: DefaultLoadControl, bytes: Int, minBufferedMs: Int) -> Unit)? = null,
     ): DefaultLoadControl {
         val targetBufferBytes = (targetBufferMb.toLong() * 1024L * 1024L)
             .coerceAtMost(Int.MAX_VALUE.toLong())
@@ -222,7 +223,7 @@ internal object NuvioExoPlayerPerformanceHelper {
             .setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(backBufferMs, true)
             .build()
-            .also { onExplicitByteBudget?.invoke(it, targetBufferBytes) }
+            .also { onExplicitByteBudget?.invoke(it, targetBufferBytes, 0) }
     }
 
     private fun effectiveBackBufferMs(backBufferMs: Int, minBufferMs: Int): Int {
