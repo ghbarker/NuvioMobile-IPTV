@@ -88,7 +88,8 @@ internal actual object AppIconPlatform {
     }
 
     fun applyRestoredIcon() {
-        val option = AppIconOption.entries.find { it.key == loadSelectedIconKey() } ?: return
+        val savedKey = loadSelectedIconKey() ?: return
+        val option = AppIconOption.entries.find { it.key == savedKey } ?: return
         if (option.platformName == currentIconName() || setLauncherIcon(option.platformName)) {
             AppIconRepository.onLauncherIconRestored(option)
         }
