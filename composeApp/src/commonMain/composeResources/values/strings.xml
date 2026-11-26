@@ -3127,4 +3127,18 @@
     <string name="livetv_fix_match_auto">Back to automatic</string>
     <string name="livetv_fix_match_rec_scope">Used for every recording of this show, now and later</string>
     <string name="livetv_fix_match_vod_scope">Its poster, details, and what it opens</string>
+    <plurals name="livetv_rec_episodes">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+    <plurals name="livetv_rec_episodes_delete">
+        <item quantity="one">Delete this recorded episode?</item>
+        <item quantity="other">Delete all %1$d recorded episodes?</item>
+    </plurals>
+    <string name="livetv_rec_delete_all">Delete all episodes</string>
+    <string name="livetv_rec_delete_show_title">Delete all of “%1$s”?</string>
+    <string name="livetv_rec_delete_show_warning">This cannot be undone. Your series rule and future scheduled recordings will be kept.</string>
+    <string name="livetv_rec_shared_delete_warning">Episodes in the network folder will also be removed from every TV and phone using that folder.</string>
+    <string name="livetv_rec_delete_changed">The network folder changed. Reopen the series and try again; no more episodes were deleted.</string>
+    <string name="livetv_rec_delete_incomplete">Some episodes could not be deleted.</string>
 </resources>

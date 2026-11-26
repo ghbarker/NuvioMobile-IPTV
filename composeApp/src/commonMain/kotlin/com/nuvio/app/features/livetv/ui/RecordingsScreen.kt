@@ -128,9 +128,14 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.record.RecordedShow
+import com.nuvio.app.features.livetv.record.SingleRecording
+import com.nuvio.app.features.livetv.record.groupRecorded
+import com.nuvio.app.features.livetv.record.recordingEntryKey
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodItem
 import com.nuvio.app.features.livetv.ondemand.VodKind
@@ -149,6 +154,8 @@ import nuvio.composeapp.generated.resources.livetv_ui_rec_net_unreachable
 import nuvio.composeapp.generated.resources.livetv_ui_rec_network
 import nuvio.composeapp.generated.resources.livetv_ui_rec_settings
 import nuvio.composeapp.generated.resources.livetv_ui_rec_waiting_net
+import nuvio.composeapp.generated.resources.livetv_rec_delete_changed
+import nuvio.composeapp.generated.resources.livetv_rec_delete_incomplete
 
 /**
  * Recordings: what's recording now above three tabs: Recorded (posters), Scheduled (by day) and
@@ -186,6 +193,25 @@ internal fun RecordingsScreen(
 
     val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
     val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
+    val entries = remember(recorded) { groupRecorded(recorded) }
+    val recordedGridState = rememberLazyGridState()
+    var openShowKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val openShow = entries.firstOrNull { it.key == openShowKey } as? RecordedShow
+    // Initial disk/network reads may still be loading after recreation. Once the open folder
+    // has appeared, losing it (for example after deleting an episode) returns to the grid.
+    var openShowSeen by remember(openShowKey) { mutableStateOf(false) }
+    LaunchedEffect(openShow) {
+        if (openShow != null) openShowSeen = true
+        else if (openShowSeen) openShowKey = null
+    }
+    var confirmDeleteShow by remember { mutableStateOf<RecordedShow?>(null) }
+    var deleteNetworkConfig by remember { mutableStateOf<String?>(null) }
+    var deletingShow by remember { mutableStateOf(false) }
+    val deleteScope = rememberCoroutineScope()
+    val deleteChangedText = stringResource(Res.string.livetv_rec_delete_changed)
+    val deleteIncompleteText = stringResource(Res.string.livetv_rec_delete_incomplete)
+    val sourceLines = recorded.associate { r -> recordingEntryKey(r) to recordingTransferLine(r, netAway,
+        uploads.copyingId, uploads.progress, waitingForNetwork) }
     val awayText = stringResource(Res.string.livetv_ui_rec_away)
     // A recording on the network folder: plays from there, only when it can be reached.
     fun play(r: LiveTvRecording) {
@@ -202,7 +228,24 @@ internal fun RecordingsScreen(
     }
     val sidePad = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16))
 
-    Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
+    if (openShow != null) {
+        val newest = openShow.episodes.maxBy { it.programStartMs.takeIf { at -> at > 0 } ?: it.startedAtMs }
+        RecordedShowPage(
+            show = openShow,
+            poster = rememberRecordingPoster(openShow.title, newest.channelName),
+            statusLines = sourceLines.mapNotNull { (key, value) -> value?.let { key to it } }.toMap(),
+            networkWarning = awayText.takeIf { netAway && openShow.episodes.any { NetworkLibrary.isNetwork(it) } },
+            deleteEnabled = !deletingShow,
+            modifier = modifier,
+            onPlay = ::play,
+            onMenu = { sheet = it },
+            onDeleteAll = {
+                deleteNetworkConfig = LiveTvPreferences.currentNetworkFolderJson()
+                confirmDeleteShow = openShow
+            },
+            onClose = { openShowKey = null },
+        )
+    } else Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
         NuvioScreenHeader(
             title = stringResource(Res.string.livetv_recordings),
             includeStatusBarPadding = false,
@@ -249,12 +292,25 @@ internal fun RecordingsScreen(
         when (tab) {
             TAB_RECORDED -> if (recorded.isEmpty()) EmptyTab(stringResource(Res.string.livetv_rec_none_recorded)) else LazyVerticalGrid(
                 columns = GridCells.Adaptive(POSTER_MIN_WIDTH),
+                state = recordedGridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, top = NuvioTokens.Space.s4, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
                 verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
             ) {
-                gridItems(recorded, key = { (if (NetworkLibrary.isNetwork(it)) "n:" else "d:") + it.id }) { r ->
+                gridItems(entries, key = { it.key }) { entry ->
+                    if (entry is RecordedShow) {
+                        val newest = entry.episodes.maxBy { it.programStartMs.takeIf { at -> at > 0 } ?: it.startedAtMs }
+                        RecordedFolderCard(
+                            show = entry,
+                            poster = rememberRecordingPoster(entry.title, newest.channelName),
+                            statusLine = entry.episodes.firstNotNullOfOrNull { sourceLines[recordingEntryKey(it)] },
+                            onClick = { openShowKey = entry.key },
+                            onLongClick = { openShowKey = entry.key },
+                        )
+                        return@gridItems
+                    }
+                    val r = (entry as SingleRecording).rec
                     val failed = r.status == RecordingStatus.FAILED
                     val fromTv = NetworkLibrary.isNetwork(r)
                     RecordingPosterCard(
@@ -334,6 +390,38 @@ internal fun RecordingsScreen(
         }
     }
 
+    confirmDeleteShow?.let { show ->
+        DeleteRecordedShowDialog(show, onDismiss = { confirmDeleteShow = null }, onConfirm = {
+            confirmDeleteShow = null
+            val hasNetwork = show.episodes.any { NetworkLibrary.isNetwork(it) }
+            val config = deleteNetworkConfig
+            if (hasNetwork && config != LiveTvPreferences.currentNetworkFolderJson()) {
+                NuvioToastController.show(deleteChangedText)
+            } else {
+                deletingShow = true
+                deleteScope.launch {
+                    var problem: String? = null
+                    try {
+                        for (snapshot in show.episodes) {
+                            if (hasNetwork && config != LiveTvPreferences.currentNetworkFolderJson()) {
+                                problem = deleteChangedText
+                                break
+                            }
+                            val fresh = (LiveTvRecorder.recordings.value + NetworkLibrary.state.value.recordings)
+                                .firstOrNull { recordingEntryKey(it) == recordingEntryKey(snapshot) }
+                                ?.takeIf { it.status == RecordingStatus.DONE && it.dir == snapshot.dir && it.startedAtMs == snapshot.startedAtMs }
+                                ?: continue
+                            if (NetworkLibrary.isNetwork(fresh)) {
+                                NetworkLibrary.delete(fresh)?.let { if (problem == null) problem = it }
+                            } else LiveTvRecorder.delete(fresh.id)
+                        }
+                        problem?.let { NuvioToastController.show("$deleteIncompleteText $it") }
+                    } finally { deletingShow = false }
+                }
+            }
+        })
+    }
+
     when (val s = sheet) {
         is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) },
             onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
@@ -361,7 +449,22 @@ private fun SectionTitle(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecordingRow(rec: LiveTvRecording, now: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun recordingTransferLine(
+    rec: LiveTvRecording, networkAway: Boolean, copyingId: String?, progress: Float, waiting: Set<String>,
+): String? = when {
+    NetworkLibrary.isNetwork(rec) && networkAway -> stringResource(Res.string.livetv_ui_rec_net_unreachable)
+    !NetworkLibrary.isNetwork(rec) && copyingId == rec.id -> stringResource(Res.string.livetv_ui_rec_copying, (progress * 100).toInt())
+    !NetworkLibrary.isNetwork(rec) && rec.id in waiting -> stringResource(Res.string.livetv_ui_rec_waiting_net)
+    NetworkLibrary.isNetwork(rec) -> stringResource(Res.string.livetv_ui_rec_network)
+    else -> null
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun RecordingRow(
+    rec: LiveTvRecording, now: Long, onClick: () -> Unit, onLongClick: () -> Unit,
+    title: String = rec.title + (rec.episode?.let { "  ·  $it" } ?: ""), statusLine: String? = null,
+) {
     val tokens = MaterialTheme.nuvio
     val liveSeconds = if (rec.isRecording && !rec.fromCatchup) ((now - rec.startedAtMs) / 1000.0).coerceAtLeast(rec.durationSec) else rec.durationSec
     val info = listOfNotNull(
@@ -382,8 +485,9 @@ private fun RecordingRow(rec: LiveTvRecording, now: Long, onClick: () -> Unit, o
                 ?: Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = tokens.colors.textMuted)
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
-            Text(rec.title + (rec.episode?.let { "  ·  $it" } ?: ""), style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(info, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            statusLine?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             rec.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (rec.status == RecordingStatus.FAILED) tokens.colors.danger else tokens.colors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
         when {
@@ -447,7 +551,7 @@ private fun isSportsRecording(title: String, channelName: String?): Boolean =
 
 /** A show's poster (TMDB, as On Demand finds them), or null. Off when "Show posters" is off. */
 @Composable
-private fun rememberRecordingPoster(title: String, channelName: String?): String? {
+internal fun rememberRecordingPoster(title: String, channelName: String?): String? {
     val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val wanted = settings.showPosters && title.isNotBlank() && !isSportsRecording(title, channelName)
     // Fix match: your pick (here or on a TV) wins; then the channel's country picks between same-named shows.
@@ -532,7 +636,7 @@ private fun rememberRecordingAbout(rec: LiveTvRecording): String? {
 
 /** A portrait poster, or the channel's logo on the card color when there's none. */
 @Composable
-private fun PosterBox(poster: String?, channelLogo: String?, modifier: Modifier) {
+internal fun PosterBox(poster: String?, channelLogo: String?, modifier: Modifier) {
     val tokens = MaterialTheme.nuvio
     Box(modifier = modifier.clip(RoundedCornerShape(NuvioTokens.Radius.md)).background(tokens.colors.surfaceCard), contentAlignment = Alignment.Center) {
         when {
