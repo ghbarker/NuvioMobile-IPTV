@@ -124,6 +124,7 @@ object DownloadsRepository {
         episodeTitle: String?,
         episodeThumbnail: String?,
         stream: StreamItem,
+        folder: DownloadFolder? = null,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -147,6 +148,7 @@ object DownloadsRepository {
         val currentItems = _uiState.value.items.toMutableList()
         val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
         if (existing != null) {
+            if (folder != null || existing.folder != null) return DownloadEnqueueResult.AlreadySaved
             replacedExisting = true
             activeHandles.remove(existing.id)?.cancel()
             DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
@@ -160,7 +162,7 @@ object DownloadsRepository {
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
             episodeTitle = episodeTitle,
-            fallbackTitle = stream.streamLabel,
+            fallbackTitle = if (folder == null) stream.streamLabel else "download",
             sourceUrl = sourceUrl,
             downloadId = downloadId,
         )
@@ -186,7 +188,7 @@ object DownloadsRepository {
             sourceUrl = sourceUrl,
             sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-            subtitleRequests = addonSubtitleRequests(
+            subtitleRequests = if (folder != null) emptyList() else addonSubtitleRequests(
                 type = contentType,
                 videoId = videoId,
                 extras = SubtitleRequestExtras.from(stream.behaviorHints, sourceUrl),
@@ -200,6 +202,7 @@ object DownloadsRepository {
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
+            folder = folder,
         )
 
         currentItems.add(0, item)
@@ -439,7 +442,7 @@ object DownloadsRepository {
     }
 
     private fun normalizeCompletedLocalFileUri(item: DownloadItem): DownloadItem {
-        if (item.status != DownloadStatus.Completed) return item
+        if (item.status != DownloadStatus.Completed || item.folder != null) return item
         val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
             localFileUri = item.localFileUri,
             destinationFileName = item.fileName,

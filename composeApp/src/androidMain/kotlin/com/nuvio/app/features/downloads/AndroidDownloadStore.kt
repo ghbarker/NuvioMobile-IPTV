@@ -17,6 +17,8 @@ internal data class AndroidDownloadTransfer(
     val generation: String,
     val validator: String? = null,
     val retryCount: Int = 0,
+    val partialDocumentUri: String? = null,
+    val readyToPublishBytes: Long? = null,
 )
 
 internal class AndroidDownloadStore(private val directory: File) {
@@ -35,6 +37,8 @@ internal class AndroidDownloadStore(private val directory: File) {
             jobId = previous?.jobId ?: ((state.value.values.maxOfOrNull { it.jobId } ?: 0) + 1),
             generation = UUID.randomUUID().toString(),
             validator = previous?.validator,
+            partialDocumentUri = previous?.partialDocumentUri,
+            readyToPublishBytes = previous?.readyToPublishBytes,
         )
         save(transfer)
         transfer

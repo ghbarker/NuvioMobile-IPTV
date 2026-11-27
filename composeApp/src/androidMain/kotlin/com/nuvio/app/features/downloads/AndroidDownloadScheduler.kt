@@ -4,11 +4,16 @@ import android.app.job.JobInfo
 import android.app.job.JobScheduler
 import android.content.ComponentName
 import android.content.Context
+import android.media.MediaFormat
 import android.net.Network
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.os.Build
 import android.os.PersistableBundle
 import android.os.SystemClock
 import androidx.annotation.RequiresApi
+import androidx.media3.exoplayer.MediaExtractorCompat
+import androidx.media3.common.MimeTypes
 import androidx.core.content.ContextCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -33,6 +38,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
 
 internal class AndroidDownloadScheduler(val context: Context) {
     val store = AndroidDownloadStore(File(context.filesDir, "download-transfers"))
@@ -123,6 +129,12 @@ internal class AndroidDownloadScheduler(val context: Context) {
         cleanupScope.launch {
             lock(fileName).withLock {
                 if (store.get(fileName) == null) {
+                    if (transfer?.item?.folder != null) {
+                        transfer.partialDocumentUri?.let { uri ->
+                            runCatching { DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(uri)) }
+                        }
+                        return@withLock
+                    }
                     File(directory, "$fileName.part").delete()
                     DownloadSubtitleStorage(File(directory, fileName).toURI().toString()).remove()
                 }
@@ -142,7 +154,6 @@ internal class AndroidDownloadScheduler(val context: Context) {
     ): Boolean = lock(transfer.item.fileName).withLock {
         val fileName = transfer.item.fileName
         if (!isActive(transfer)) return@withLock false
-        val destination = File(directory, fileName)
         val client = if (network != null) {
             downloadHttpClient.newBuilder()
                 .socketFactory(network.socketFactory)
@@ -151,27 +162,30 @@ internal class AndroidDownloadScheduler(val context: Context) {
                 .build()
         } else downloadHttpClient
         try {
-            DownloadSubtitles.prepare(transfer.item, destination.toURI().toString())
+            val destination = File(directory, fileName)
+            if (transfer.item.folder == null) DownloadSubtitles.prepare(transfer.item, destination.toURI().toString())
             currentCoroutineContext().ensureActive()
             if (!isActive(transfer)) return@withLock false
             var lastProgressAt = 0L
+            val onHeaders: (Long?, String?) -> Unit = { total, validator ->
+                updateActive(transfer) { it.copy(validator = validator, item = it.item.copy(totalBytes = total)) }
+            }
+            val progress: (Long, Long?) -> Unit = { bytes, total ->
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastProgressAt >= 1_000L || bytes == total) {
+                    lastProgressAt = now
+                    updateActive(transfer) {
+                        it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
+                    }?.let(onProgress)
+                }
+            }
+            val folder = transfer.item.folder
+            if (folder != null) {
+                downloadToFolder(transfer, folder, client, onHeaders, progress)
+                return@withLock false
+            }
             val partial = if (destination.isFile) destination else transferAndroidDownload(
-                item = transfer.item,
-                directory = directory,
-                validator = transfer.validator,
-                client = client,
-                onHeaders = { total, validator ->
-                    updateActive(transfer) { it.copy(validator = validator, item = it.item.copy(totalBytes = total)) }
-                },
-                onProgress = { bytes, total ->
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastProgressAt >= 1_000L || bytes == total) {
-                        lastProgressAt = now
-                        updateActive(transfer) {
-                            it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
-                        }?.let(onProgress)
-                    }
-                },
+                transfer.item, directory, transfer.validator, client, onHeaders, progress,
             )
             currentCoroutineContext().ensureActive()
             updateActive(transfer) { current ->
@@ -202,13 +216,76 @@ internal class AndroidDownloadScheduler(val context: Context) {
         }
     }
 
+    private suspend fun downloadToFolder(
+        transfer: AndroidDownloadTransfer,
+        folder: DownloadFolder,
+        client: OkHttpClient,
+        onHeaders: (Long?, String?) -> Unit,
+        progress: (Long, Long?) -> Unit,
+    ) {
+        val docs = AndroidDownloadDocuments(context.contentResolver, folder)
+        val name = transfer.item.fileName
+        val current = store.get(name) ?: return
+        val partial = current.partialDocumentUri?.let(Uri::parse) ?: updateActive(transfer) {
+            it.copy(partialDocumentUri = docs.createPartial(name).toString())
+        }?.partialDocumentUri?.let(Uri::parse) ?: return
+        val verified = current.readyToPublishBytes
+        val recovered = verified?.let { docs.publishedAfterRestart(partial, name, it) }
+        val bytes = verified ?: transferDownloadBytes(
+            transfer.item, docs.size(partial), current.validator, client, { docs.open(partial, it) }, onHeaders, progress,
+        )
+        currentCoroutineContext().ensureActive()
+        if (verified == null) {
+            validateLocalVideo(partial)
+            docs.checkNameAvailable(partial, name)
+            updateActive(transfer) { it.copy(readyToPublishBytes = bytes) }
+        }
+        updateActive(transfer) {
+            val completed = recovered ?: docs.publish(partial, name)
+            it.copy(
+                partialDocumentUri = null, readyToPublishBytes = null,
+                item = it.item.copy(status = DownloadStatus.Completed, localFileUri = completed.toString(),
+                    downloadedBytes = bytes, totalBytes = bytes, errorMessage = null),
+            )
+        }
+    }
+
+    private fun validateLocalVideo(uri: Uri) {
+        val extractor = MediaExtractorCompat(context)
+        try {
+            extractor.setDataSource(uri, 0L)
+            val videoIndex = (0 until extractor.trackCount).firstOrNull {
+                MimeTypes.isVideo(extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME))
+            } ?: throw DownloadFormatException()
+            extractor.selectTrack(videoIndex)
+            if (extractor.drmInitData != null || extractor.sampleTrackIndex < 0 ||
+                extractor.sampleFlags and android.media.MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0) {
+                throw DownloadFormatException()
+            }
+        } catch (_: SecurityException) {
+            throw DownloadFolderException()
+        } catch (_: java.io.FileNotFoundException) {
+            throw DownloadFolderException()
+        } catch (_: Exception) {
+            throw DownloadFormatException()
+        } finally {
+            extractor.release()
+        }
+    }
+
     fun isActive(transfer: AndroidDownloadTransfer): Boolean = store.get(transfer.item.fileName)?.let {
         it.generation == transfer.generation && it.item.status == DownloadStatus.Downloading
     } == true
 
     fun fail(transfer: AndroidDownloadTransfer, error: Exception) {
         updateActive(transfer) {
-            it.copy(item = it.item.copy(status = DownloadStatus.Failed, errorMessage = error.message ?: "Download failed"))
+            val message = when {
+                it.item.folder == null -> error.message
+                error is DownloadHttpException || error is DownloadFormatException || error is DownloadFolderException ||
+                    error is DownloadNameConflictException -> error.message
+                else -> "Download interrupted. Check the connection and available space, then retry."
+            }
+            it.copy(item = it.item.copy(status = DownloadStatus.Failed, errorMessage = message ?: "Download failed"))
         }
     }
 
@@ -237,6 +314,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
 
 internal fun shouldRetryAndroidDownload(error: Exception, retries: Int): Boolean =
     retries < 4 && when (error) {
+        is DownloadFolderException, is DownloadFormatException, is DownloadNameConflictException -> false
         is DownloadHttpException -> error.statusCode == 408 || error.statusCode == 429 || error.statusCode in 500..599
         is IOException -> true
         else -> false

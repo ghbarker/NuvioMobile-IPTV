@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,10 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
+        if (localFileUri.startsWith("content://")) {
+            val resolver = appContext?.contentResolver ?: return false
+            return runCatching { DocumentsContract.deleteDocument(resolver, Uri.parse(localFileUri)) }.getOrDefault(false)
+        }
         val file = localFileUri.toLocalFileOrNull() ?: return false
         return runCatching { file.delete() }.getOrDefault(false)
     }
@@ -82,6 +88,12 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? {
+        if (localFileUri?.startsWith("content://") == true) {
+            val resolver = appContext?.contentResolver ?: return null
+            return runCatching {
+                resolver.openFileDescriptor(Uri.parse(localFileUri), "r")?.use { localFileUri }
+            }.getOrNull()
+        }
         localFileUri
             ?.toLocalFileOrNull()
             ?.takeIf { it.exists() }

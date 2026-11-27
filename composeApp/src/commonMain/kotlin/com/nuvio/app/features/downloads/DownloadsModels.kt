@@ -9,6 +9,7 @@ import nuvio.composeapp.generated.resources.downloads_enqueue_missing_url
 import nuvio.composeapp.generated.resources.downloads_enqueue_replaced
 import nuvio.composeapp.generated.resources.downloads_enqueue_started
 import nuvio.composeapp.generated.resources.downloads_enqueue_unsupported_format
+import nuvio.composeapp.generated.resources.downloads_playlist_already_saved
 import org.jetbrains.compose.resources.getString
 
 @Serializable
@@ -18,6 +19,9 @@ enum class DownloadStatus {
     Completed,
     Failed,
 }
+
+@Serializable
+data class DownloadFolder(val treeUri: String, val label: String)
 
 @Serializable
 data class DownloadItem(
@@ -51,6 +55,7 @@ data class DownloadItem(
     val errorMessage: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    val folder: DownloadFolder? = null,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null
@@ -91,6 +96,7 @@ enum class DownloadEnqueueResult {
     Started,
     Replaced,
     MissingUrl,
+    AlreadySaved,
     UnsupportedFormat;
 
     fun toastMessage(): String = runBlocking {
@@ -98,6 +104,7 @@ enum class DownloadEnqueueResult {
             Started -> getString(Res.string.downloads_enqueue_started)
             Replaced -> getString(Res.string.downloads_enqueue_replaced)
             MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
+            AlreadySaved -> getString(Res.string.downloads_playlist_already_saved)
             UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
         }
     }
