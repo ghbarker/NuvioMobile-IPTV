@@ -103,9 +103,46 @@ class SportsRowsTest {
         val future = List(4) { event("next-$it", at = now + (it + 1) * hour, word = "Name") }
         val f = SportsFollows(teams = listOf(followed()), leagues = setOf("football/nfl"), words = listOf("Name"))
         val rows = equivalent(past + future, f).rows.filter { it.kind != SportsRow.Kind.UPCOMING }
-        assertEquals(listOf(5, 8, 5), rows.map { it.startIndex })
-        assertEquals(listOf(9, 12, 9), rows.map { it.events.size })
-        assertEquals(listOf(4, 7, 4), equivalent(past, f).rows.map { it.startIndex })
+        assertEquals(listOf(5, 12, 5), rows.map { it.startIndex })
+        assertEquals(listOf(9, 16, 9), rows.map { it.events.size })
+        assertEquals(listOf(4, 11, 4), equivalent(past, f).rows.map { it.startIndex })
+    }
+
+    @Test fun `league rows retain the current weekly and event season history`() {
+        val weekly = List(20) { event("week-$it", at = now - (20 - it) * hour, state = GameState.POST) }
+        val next = event("next")
+        val leagueFollows = SportsFollows(leagues = setOf("football/nfl"))
+        val leagueRow = SportsRows.build(weekly + next, leagueFollows, now) { mine(it, leagueFollows) }
+            .rows.single { it.kind == SportsRow.Kind.LEAGUE }
+        events(weekly.takeLast(16) + next, leagueRow.events)
+        assertEquals(16, leagueRow.startIndex)
+
+        val moto = "guide/motogp"
+        val season = List(90) { event("race-$it", moto, now - (90 - it) * day,
+            GameState.POST, away = null, home = null) }
+        val upcoming = event("next-race", moto, now + day, away = null, home = null)
+        val raceFollows = SportsFollows(pins = listOf(moto))
+        val raceRow = SportsRows.build(season + upcoming, raceFollows, now) { mine(it, raceFollows) }
+            .rows.single { it.kind == SportsRow.Kind.LEAGUE }
+        events(season.takeLast(80) + upcoming, raceRow.events)
+        assertEquals(80, raceRow.startIndex)
+
+        val boundary = event("season-boundary", moto, now - 12 * 31L * day, GameState.POST)
+        val tooOld = boundary.copy(id = "outside-season", startMs = boundary.startMs - 1)
+        val boundaryRow = SportsRows.build(listOf(tooOld, boundary), raceFollows, now) { mine(it, raceFollows) }
+            .rows.single { it.kind == SportsRow.Kind.LEAGUE }
+        events(listOf(boundary), boundaryRow.events)
+    }
+
+    @Test fun `future postponed copies cannot replace an earlier upcoming copy as a recent result`() {
+        val postponed = event("same-id", at = now + 2 * hour, state = GameState.OFF)
+        val upcoming = event("same-id", at = now + hour)
+        val recent = event("last-round", at = now - 3 * day, state = GameState.POST)
+        val follows = SportsFollows(leagues = setOf("football/nfl"))
+        val row = SportsRows.build(listOf(postponed, upcoming, recent), follows, now) { mine(it, follows) }
+            .rows.single { it.kind == SportsRow.Kind.LEAGUE }
+        events(listOf(recent, upcoming), row.events)
+        assertEquals(1, row.startIndex)
     }
 
     @Test fun `time boundaries postponed duplicate ids and reminders keep selection rules`() {
@@ -184,12 +221,16 @@ class SportsRowsTest {
     }
 }
 
-/** Compatibility oracle: the stock Mobile builder, with selection and order unchanged. */
+/** Independent row scans with the Mobile history policy documented at base 4ad8083a. */
 private object ReferenceSportsRows {
     private const val HOUR = 3_600_000L
     private const val DAY = 24 * HOUR
     /** Results kept at the start of a team's row. */
     private const val RESULTS = 5
+    private const val LEAGUE_RESULTS = 16
+    private const val SEASON_RESULTS = 80
+    private const val LEAGUE_BACK_DAYS = 45
+    private const val SEASON_MONTHS = 12
 
     /** The keys of My Sports' rows (not Live & Upcoming), in your order (see [SportsFollows.order]). */
     fun rowKeys(f: SportsFollows): List<String> {
@@ -247,15 +288,21 @@ private object ReferenceSportsRows {
         for (id in leagueIds) {
             val l = SportsCatalog.league(id) ?: continue
             val all = known.filter { it.leagueId == id }
-            // This week (with the last two days' results); a league between rounds: its next games.
-            // The last couple of days' results, then every game ahead we have (up to five weeks;
-            // capped so a busy league like MLB stays a row you can get through).
-            val recent = all.filter { it.startMs >= now - 2 * DAY && (it.state == GameState.POST || it.state == GameState.OFF) }
+            // The current base keeps the last week, or the last round of a quiet league;
+            // races and tournaments retain their season. Future OFF entries belong ahead.
+            val done = all.filter { (it.state == GameState.POST || it.state == GameState.OFF) && it.startMs < now }
+            val eventLeague = l.kind == LeagueKind.EVENT
+            val recent = if (eventLeague) done.filter { it.startMs >= now - SEASON_MONTHS * 31L * DAY }
+            else done.filter { it.startMs >= now - 7 * DAY }.ifEmpty {
+                val newest = done.maxOfOrNull { it.startMs } ?: 0L
+                done.filter { it.startMs >= now - LEAGUE_BACK_DAYS * DAY && it.startMs >= newest - 4 * DAY }
+            }
             val ahead = all.filter { it.state == GameState.LIVE || ((it.state == GameState.PRE || it.state == GameState.OFF) && it.startMs >= now - 3 * HOUR) }
                 .sortedBy { it.startMs }.take(60)
             val games = recent + ahead
             if (games.isEmpty()) continue
-            rows += timeline("l:$id", l.name, SportsRow.Kind.LEAGUE, games.distinctBy { it.id }, now, league = l, results = 8)
+            rows += timeline("l:$id", l.name, SportsRow.Kind.LEAGUE, games.distinctBy { it.id }, now, league = l,
+                results = if (eventLeague) SEASON_RESULTS else LEAGUE_RESULTS)
         }
 
         // ---- names you follow

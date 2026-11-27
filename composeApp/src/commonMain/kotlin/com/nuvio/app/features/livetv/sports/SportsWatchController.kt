@@ -83,14 +83,18 @@ internal class SportsWatchController(private val profileId: Int?) {
 
     private val now = flow { while (true) { emit(LiveTvClock.nowMs()); delay(15_000) } }
 
-    val games: StateFlow<List<SportsWatchGame>> = combine(repo.events, repo.matches, allowed, settings, now) {
+    private val listingEvents = combine(repo.events, repo.listingKnown, repo.follows, now) { events, known, follows, now ->
+        SportsEventListings.forPage(events, known, follows, repo.dayStart(-1), repo.dayStart(SportsRepository.DAYS_AHEAD + 1), now)
+    }
+
+    val games: StateFlow<List<SportsWatchGame>> = combine(listingEvents, repo.matches, allowed, settings, now) {
         events, matches, allowed, settings, now ->
         if (profileIsCurrent()) SportsWatchPolicy.games(events, matches, allowed, settings, now) else emptyList()
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private data class PageInputs(val events: List<SportsEvent>, val known: List<SportsEvent>,
         val follows: SportsFollows, val settings: SportsSettings, val selected: SportsWatchPageSelection?)
-    private val pageInputs = combine(repo.events, repo.known, repo.follows, settings, SportsWatchSelection.current) {
+    private val pageInputs = combine(repo.events, repo.listingKnown, repo.follows, settings, SportsWatchSelection.current) {
         events, known, follows, settings, selected -> PageInputs(events, known, follows, settings, selected)
     }
 
@@ -99,14 +103,16 @@ internal class SportsWatchController(private val profileId: Int?) {
         if (!profileIsCurrent()) emptyList() else {
             val selected = input.selected?.takeIf { it.profileId == profileId }
             val mine = selected?.mine ?: !input.follows.isEmpty
-            val current = SportsWatchPolicy.games(input.events, matches, allowed, input.settings, now)
+            val listingEvents = SportsEventListings.forPage(input.events, input.known, input.follows,
+                repo.dayStart(-1), repo.dayStart(SportsRepository.DAYS_AHEAD + 1), now)
+            val current = SportsWatchPolicy.games(listingEvents, matches, allowed, input.settings, now)
                 .associateBy { it.event.id }
             if (selected?.live == true) {
                 // Live Now chip: what's on now in every sport.
                 val active = repo.activeLeagues(input.settings, input.follows).mapTo(HashSet()) { it.id } + SportsMatcher.OTHER_ID
                 val query = SportsDayQuery(0, null, repo.dayStart(0), repo.dayStart(1), active,
                     input.settings.onlyOnMyChannels && LiveTvRepository.channels.value.isNotEmpty() && matches.isNotEmpty(), input.follows)
-                val page = buildSportsDayPage(SportsDayInputs(query, input.events, input.settings, matches, now), ::isMine)
+                val page = buildSportsDayPage(SportsDayInputs(query, input.events, input.settings, matches, now, input.known), ::isMine)
                 SportsWatchPolicy.projectRows(listOf(Triple("live", "Live Now", page.sections.live)), current)
             } else if (mine) {
                 val page = buildMySportsPage(MySportsInputs(input.known, input.follows, now), ::isMine)
@@ -116,7 +122,7 @@ internal class SportsWatchController(private val profileId: Int?) {
                 val active = repo.activeLeagues(input.settings, input.follows).mapTo(HashSet()) { it.id } + SportsMatcher.OTHER_ID
                 val query = SportsDayQuery(day, selected?.sport, repo.dayStart(day), repo.dayStart(day + 1), active,
                     input.settings.onlyOnMyChannels && LiveTvRepository.channels.value.isNotEmpty() && matches.isNotEmpty(), input.follows)
-                val page = buildSportsDayPage(SportsDayInputs(query, input.events, input.settings, matches, now), ::isMine)
+                val page = buildSportsDayPage(SportsDayInputs(query, input.events, input.settings, matches, now, input.known), ::isMine)
                 SportsWatchPolicy.projectRows(listOf(
                     Triple("live", "Live Now", page.sections.live),
                     Triple("upcoming", if (day > 0) "Schedule" else "Coming Up", page.sections.upcoming),

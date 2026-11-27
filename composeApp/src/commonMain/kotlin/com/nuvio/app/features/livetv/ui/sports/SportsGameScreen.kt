@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.rotate
 import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.sports.SportsDates
 import com.nuvio.app.features.livetv.sports.SportsFollows
+import com.nuvio.app.features.livetv.sports.SportsEventListings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -152,11 +153,13 @@ fun SportsGameScreen(
     val repo = SportsRepository
     LaunchedEffect(Unit) { repo.start(); repo.setViewing(true) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { repo.setViewing(false) } }
-    val known by repo.known.collectAsStateWithLifecycle()
+    val known by repo.listingKnown.collectAsStateWithLifecycle()
     val events by repo.events.collectAsStateWithLifecycle()
     // The row of the day's games at the top switches the page to another game (Back still leaves).
     var shownId by remember(eventId) { mutableStateOf(eventId) }
-    val ev = remember(events, known, shownId) { events.firstOrNull { it.id == shownId } ?: known.firstOrNull { it.id == shownId } }
+    val ev = remember(events, known, shownId) {
+        events.firstOrNull { it.id == shownId } ?: known.firstOrNull { it.id == shownId } ?: repo.eventById(shownId)
+    }
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
         NuvioScreenHeader(
             title = ev?.let { SportsCatalog.league(it.leagueId)?.name } ?: "Sports",
@@ -214,16 +217,17 @@ private fun guideColor(kind: GuideKind): Color = when (kind) {
 // ------------------------------------------------------------------ the day's other games
 
 /** The day's games in the same league (or the same sport when the league has only this one), for the row at the top. */
-private fun stripGames(ev: SportsEvent, known: List<SportsEvent>): List<SportsEvent> {
+private fun stripGames(ev: SportsEvent, known: List<SportsEvent>, follows: SportsFollows, now: Long): List<SportsEvent> {
     val dayStart = SportsDates.dayOf(ev.startMs)
     val dayEnd = dayStart + 24 * 3_600_000L
     fun onDay(e: SportsEvent) = (e.startMs in dayStart until dayEnd) || e.id == ev.id
-    val league = known.filter { it.leagueId == ev.leagueId && onDay(it) }
+    val league = SportsEventListings.visibleKnown(known.filter { it.leagueId == ev.leagueId && onDay(it) }, follows, now)
     val list = if (league.size >= 2) league else {
         val sport = SportsCatalog.league(ev.leagueId)?.sport
-        known.filter { sport != null && SportsCatalog.league(it.leagueId)?.sport == sport && onDay(it) }
+        SportsEventListings.visibleKnown(known.filter { sport != null && SportsCatalog.league(it.leagueId)?.sport == sport && onDay(it) }, follows, now)
     }
-    return list.distinctBy { it.id }.sortedWith(compareBy<SportsEvent> { it.startMs }.thenBy { it.id }).take(30)
+    val withCurrent = if (list.any { it.id == ev.id }) list else list + ev
+    return withCurrent.distinctBy { it.id }.sortedWith(compareBy<SportsEvent> { it.startMs }.thenBy { it.id }).take(30)
 }
 
 /** The row of the day's games across the top of a game page: the open one outlined, tap another to switch to it. */
@@ -278,7 +282,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
     val follows by repo.follows.collectAsStateWithLifecycle()
     val allMatches by repo.matches.collectAsStateWithLifecycle()
     val matching by repo.matching.collectAsStateWithLifecycle()
-    val known by repo.known.collectAsStateWithLifecycle()
+    val known by repo.listingKnown.collectAsStateWithLifecycle()
     val schedules by SportsRecordings.scheduled.collectAsStateWithLifecycle()
     val hasChannels = LiveTvRepository.channels.collectAsStateWithLifecycle().value.isNotEmpty()
     val use24h = use24h()
@@ -324,7 +328,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
         if (!hide && league != null && repo.mayHaveTable(league)) runCatching { repo.standings(ev.leagueId) }
     }
     val grouped = remember(matches) { SportsMatcher.groupCopies(matches) }
-    val strip = remember(known, ev.id, ev.leagueId, ev.startMs) { stripGames(ev, known) }
+    val strip = remember(known, follows, ev.id, ev.leagueId, ev.startMs, now / 60_000L) { stripGames(ev, known, follows, now) }
     // What each channel's guide has on now (for its guide line), checked again every minute.
     val guideKeys = remember(grouped) { grouped.map { it.first().channel }.filter { it.sourceId != SportsAddonSource.SOURCE_ID }.map { it.key } }
     val guideNow by produceState<Map<String, EpgProgram?>>(emptyMap(), guideKeys) {
