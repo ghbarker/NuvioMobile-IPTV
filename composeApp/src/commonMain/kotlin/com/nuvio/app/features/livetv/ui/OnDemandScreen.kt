@@ -241,7 +241,7 @@ internal fun OnDemandScreen(
                 items(visible.size, key = { visible[it].uid }) { i ->
                     val c = visible[i]
                     VodRow(
-                        title = c.name,
+                        title = OnDemandGroups.name(c, user, settings),
                         kind = vodKind, category = c, sort = OnDemandGroups.sortFor(c.uid, user, settings),
                         hidden = hiddenOrLocked, merge = settings.vodMergeDuplicates, version = version,
                         onSeeAll = { actions.onSeeAll(vodKind, c.uid, it) },
@@ -256,14 +256,14 @@ internal fun OnDemandScreen(
                         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
                     ) {
                         Icon(Icons.Filled.Lock, contentDescription = null, tint = tokens.colors.textMuted)
-                        Text(c.name, style = MaterialTheme.typography.titleMedium, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(OnDemandGroups.name(c, user, settings), style = MaterialTheme.typography.titleMedium, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
         }
     }
 
-    unlockCategory?.let { c -> UnlockGroupDialog("vod:${c.uid}", c.name, onDismiss = { unlockCategory = null }) }
+    unlockCategory?.let { c -> UnlockGroupDialog("vod:${c.uid}", OnDemandGroups.name(c, user, settings), onDismiss = { unlockCategory = null }) }
     selected?.let { item -> OnDemandTitleSheet(item = item, actions = actions, onDismiss = { selected = null }) }
     if (manageGroups) ManageVodGroupsDialog(kind = vodKind, categories = categories, onDismiss = { manageGroups = false })
 }
@@ -388,7 +388,8 @@ internal fun OnDemandSeeAllScreen(
 
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
         NuvioScreenHeader(
-            title = title.ifBlank { stringResource(Res.string.livetv_on_demand) },
+            title = category?.let { OnDemandGroups.name(it, user, settings) }
+                ?: title.ifBlank { stringResource(Res.string.livetv_on_demand) },
             includeStatusBarPadding = false,
             onBack = onBack,
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
@@ -528,6 +529,7 @@ private fun VodTile(item: VodItem, watchedKeys: Set<String>, onClick: () -> Unit
 private fun ManageVodGroupsDialog(kind: VodKind, categories: List<VodCategory>, onDismiss: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val user by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val ordered = remember(categories, user.vodGroupOrder) {
         val order = user.vodGroupOrder.withIndex().associate { (i, uid) -> uid to i }
         categories.withIndex().sortedWith(compareBy<IndexedValue<VodCategory>>({ order[it.value.uid] ?: Int.MAX_VALUE }, { it.index })).map { it.value }
@@ -549,7 +551,7 @@ private fun ManageVodGroupsDialog(kind: VodKind, categories: List<VodCategory>, 
                 val hidden = c.uid in user.vodHiddenCategories
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DialogOption(
-                        text = (user.vodGroupNames[c.uid]?.takeIf { it.isNotBlank() } ?: c.name) + "  ·  ${c.count}",
+                        text = OnDemandGroups.name(c, user, settings) + "  ·  ${c.count}",
                         selected = !hidden,
                         role = Role.Checkbox,
                         onClick = { if (hidden) OnDemandGroups.show(c.uid) else OnDemandGroups.hide(c.uid) },

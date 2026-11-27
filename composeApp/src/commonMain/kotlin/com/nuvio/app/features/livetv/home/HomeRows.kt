@@ -4,6 +4,9 @@ import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.LiveHomeRowDefinition
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.model.ChannelGroup
+import com.nuvio.app.features.livetv.ondemand.OnDemandGroups
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.ondemand.VodKind
 import com.nuvio.app.features.livetv.sports.JSONArray
 import com.nuvio.app.features.livetv.sports.JSONObject
 import com.nuvio.app.features.livetv.sports.Sport
@@ -175,15 +178,27 @@ internal object HomeLiveRows {
         .distinctUntilChanged()
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    // Only catalog publication or a row source change reads group names. Presentation changes
+    // use this small snapshot; they never reload titles or repeat metadata enrichment.
+    private val vodNames: StateFlow<Map<String, String>> = combine(
+        rows.map { list -> list.filter { it.kind == HomeLiveRow.KIND_VOD && it.source.startsWith(HomeLiveRow.VOD_GROUP_PREFIX) }
+            .map { it.source.removePrefix(HomeLiveRow.VOD_GROUP_PREFIX) }.toSet() }.distinctUntilChanged(),
+        OnDemandRepository.version,
+    ) { ids, _ ->
+        if (ids.isEmpty()) emptyMap()
+        else VodKind.entries.filter { kind -> ids.any { it.startsWith("${kind.key}:") } }
+            .flatMap { OnDemandRepository.categories(it) }.filter { it.uid in ids }.associate { it.uid to it.name }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
     /** Each row's name as shown on Home and in Settings › Homescreen, by row id. */
     val names: StateFlow<Map<String, String>> = combine(
         rows,
         prefs.userState.map { Triple(it.customGroups, it.groupNames, it.vodGroupNames) }.distinctUntilChanged(),
         LiveTvViewState.list.map { l -> l.sections.associate { it.group.id to (it.group.title to it.group.sourceId) } }.distinctUntilChanged(),
-        prefs.playlists.map { l -> l.associate { it.id to it.name } }.distinctUntilChanged(),
-        prefs.settings.map { it.homeRowPlaylistNames }.distinctUntilChanged(),
-    ) { list, (custom, renamed, vodRenamed), groups, playlistNames, withPlaylist ->
-        list.associate { row -> row.id to (row.title.ifBlank { defaultName(row, custom, renamed, vodRenamed, groups, playlistNames, withPlaylist) }) }
+        combine(prefs.playlists.map { l -> l.associate { it.id to it.name } }.distinctUntilChanged(), vodNames) { playlists, vod -> playlists to vod },
+        prefs.settings.map { Triple(it.homeRowPlaylistNames, it.nameRemovals, it.cleanVodGroupNames) }.distinctUntilChanged(),
+    ) { list, (custom, renamed, vodRenamed), groups, (playlistNames, vod), (withPlaylist, removals, cleanVod) ->
+        list.associate { row -> row.id to (row.title.ifBlank { defaultName(row, custom, renamed, vodRenamed, groups, playlistNames, vod, withPlaylist, removals, cleanVod) }) }
     }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     private suspend fun defaultName(
@@ -193,7 +208,10 @@ internal object HomeLiveRows {
         vodRenamed: Map<String, String>,
         groups: Map<String, Pair<String, String?>>,
         playlistNames: Map<String, String>,
+        vodNames: Map<String, String>,
         withPlaylist: Boolean,
+        removals: String,
+        cleanVod: Boolean,
     ): String = when (row.kind) {
         HomeLiveRow.KIND_SPORTS -> sportsTitle(row.source)
         HomeLiveRow.KIND_VOD -> when (row.source) {
@@ -202,7 +220,8 @@ internal object HomeLiveRows {
             HomeLiveRow.VOD_CONTINUE -> getString(Res.string.home_rows_vod_continue_title)
             else -> {
                 val uid = row.source.removePrefix(HomeLiveRow.VOD_GROUP_PREFIX)
-                val name = vodRenamed[uid]?.takeIf { it.isNotBlank() } ?: row.label.ifBlank { getString(Res.string.home_rows_type_vod) }
+                val raw = vodNames[uid] ?: row.label.ifBlank { getString(Res.string.home_rows_type_vod) }
+                val name = OnDemandGroups.displayName(raw, vodRenamed[uid], removals, cleanVod)
                 // The category's uid is "<movie|series>:<playlist id>:<category id>".
                 val playlist = uid.split(':', limit = 3).getOrNull(1)?.let { playlistNames[it] }?.takeIf { it.isNotBlank() && withPlaylist }
                 if (playlist != null) "$name - $playlist" else name

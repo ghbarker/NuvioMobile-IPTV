@@ -87,6 +87,7 @@ import com.nuvio.app.features.livetv.ui.sports.GameAlertsRow
 import com.nuvio.app.features.livetv.ui.sports.GameAlertsSheet
 import com.nuvio.app.features.livetv.parental.ParentalControls
 import com.nuvio.app.features.livetv.ondemand.VodCategory
+import com.nuvio.app.features.livetv.ondemand.OnDemandGroups
 import com.nuvio.app.features.livetv.ondemand.VodKind
 import com.nuvio.app.features.livetv.model.ChannelGroup
 import androidx.compose.runtime.produceState
@@ -175,6 +176,8 @@ import nuvio.composeapp.generated.resources.livetv_guide_shift_description
 import nuvio.composeapp.generated.resources.livetv_time_shifts_note
 import nuvio.composeapp.generated.resources.livetv_clean_group_names
 import nuvio.composeapp.generated.resources.livetv_clean_group_names_description
+import nuvio.composeapp.generated.resources.livetv_clean_vod_group_names
+import nuvio.composeapp.generated.resources.livetv_clean_vod_group_names_description
 import nuvio.composeapp.generated.resources.livetv_hide_stray_entries
 import nuvio.composeapp.generated.resources.livetv_hide_stray_entries_description
 import nuvio.composeapp.generated.resources.livetv_section_catchup
@@ -830,6 +833,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     checked = settings.cleanGroupNames,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(cleanGroupNames = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_clean_vod_group_names),
+                    description = stringResource(Res.string.livetv_clean_vod_group_names_description),
+                    checked = settings.cleanVodGroupNames,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(cleanVodGroupNames = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -2478,6 +2489,7 @@ private fun LockedGroupsDialog(onDismiss: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val state by LiveTvViewState.list.collectAsStateWithLifecycle()
     val user by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     val movies by produceState(emptyList<VodCategory>()) { value = runCatching { OnDemandRepository.categories(VodKind.MOVIE) }.getOrDefault(emptyList()) }
     val series by produceState(emptyList<VodCategory>()) { value = runCatching { OnDemandRepository.categories(VodKind.SERIES) }.getOrDefault(emptyList()) }
     val groups = remember(state) { state.sections.map { it.group }.filter { !it.special && it.id != ChannelGroup.ALL } }
@@ -2493,7 +2505,7 @@ private fun LockedGroupsDialog(onDismiss: () -> Unit) {
             items(vod, key = { "v:" + it.uid }) { c ->
                 val id = "vod:" + c.uid
                 val locked = id in user.lockedGroups
-                DialogOption(text = c.name, description = stringResource(if (c.kind == VodKind.MOVIE) Res.string.livetv_ui_movies else Res.string.livetv_ui_series), selected = locked, onClick = { LiveTvPreferences.setGroupLocked(id, !locked); if (locked) ParentalControls.relock() })
+                DialogOption(text = OnDemandGroups.name(c, user, settings), description = stringResource(if (c.kind == VodKind.MOVIE) Res.string.livetv_ui_movies else Res.string.livetv_ui_series), selected = locked, onClick = { LiveTvPreferences.setGroupLocked(id, !locked); if (locked) ParentalControls.relock() })
             }
         }
         DialogButtons { DialogButton(text = stringResource(Res.string.action_close), style = DialogButtonStyle.Primary, onClick = onDismiss) }

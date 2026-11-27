@@ -171,6 +171,7 @@ internal object LiveTvKeys {
     const val removedSources = "removed_sources"
     const val nameRemovals = "name_removals"
     const val cleanGroupNames = "clean_group_names"
+    const val cleanVodGroupNames = "clean_vod_group_names"
     const val developerTools = "developer_tools"
     const val browseByChannelName = "browse_by_channel_name"
     const val showPlaylistInInfo = "show_playlist_in_info"
@@ -1002,6 +1003,7 @@ internal open class LiveTvPreferencesStore {
             groupPlaylistHeadings = p.bool(LiveTvKeys.groupPlaylistHeadings) ?: d.groupPlaylistHeadings,
             nameRemovals = p.str(LiveTvKeys.nameRemovals) ?: d.nameRemovals,
             cleanGroupNames = p.bool(LiveTvKeys.cleanGroupNames) ?: d.cleanGroupNames,
+            cleanVodGroupNames = p.bool(LiveTvKeys.cleanVodGroupNames) ?: d.cleanVodGroupNames,
             developerTools = p.bool(LiveTvKeys.developerTools) ?: d.developerTools,
             browseByChannelName = p.bool(LiveTvKeys.browseByChannelName) ?: d.browseByChannelName,
             showPlaylistInInfo = p.bool(LiveTvKeys.showPlaylistInInfo) ?: d.showPlaylistInInfo,
@@ -1295,6 +1297,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.groupPlaylistHeadings] = s.groupPlaylistHeadings
         p[LiveTvKeys.nameRemovals] = s.nameRemovals
         p[LiveTvKeys.cleanGroupNames] = s.cleanGroupNames
+        p[LiveTvKeys.cleanVodGroupNames] = s.cleanVodGroupNames
         p[LiveTvKeys.developerTools] = s.developerTools
         p[LiveTvKeys.browseByChannelName] = s.browseByChannelName
         p[LiveTvKeys.showPlaylistInInfo] = s.showPlaylistInInfo

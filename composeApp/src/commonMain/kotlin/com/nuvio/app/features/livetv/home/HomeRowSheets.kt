@@ -366,8 +366,9 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
                 .map { c ->
                     RowChoice(
                         source = HomeLiveRow.VOD_GROUP_PREFIX + c.uid,
-                        title = c.name,
+                        title = OnDemandGroups.name(c, user, settings),
                         detail = listOfNotNull(kindLabel, names[c.playlistId]?.takeIf { multi }, c.count.toString()).joinToString(" · "),
+                        // Persist the provider name, so disabling cleanup restores it on Home.
                         label = c.name,
                     )
                 }
@@ -410,7 +411,7 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
             )
         } else {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
-                items(choices, key = { it.source + "|" + it.title }) { c ->
+                items(choices, key = { if (picker == Picker.VOD_GROUP) it.source else it.source + "|" + it.title }) { c ->
                     if (c.heading) SheetHeading(c.title)
                     else ChoiceRow(c.title, c.detail, more = false) { onPick(c) }
                 }
