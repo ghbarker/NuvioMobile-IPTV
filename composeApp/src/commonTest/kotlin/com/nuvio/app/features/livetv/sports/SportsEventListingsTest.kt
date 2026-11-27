@@ -25,6 +25,31 @@ class SportsEventListingsTest {
         assertSame(list, SportsEventListings.forPage(list, list, follows(SportsListingSource.BOTH), now - hour, now + hour, now))
     }
 
+    @Test fun sourceProjectionPreservesHeldScoreDelayStateAndPublishedObjectIdentity() {
+        for ((source, selection) in listOf(EventSource.FIXTURES to SportsListingSource.SCHEDULE,
+            EventSource.GUIDE to SportsListingSource.GUIDE)) {
+            val delay = SportsScoreDelay()
+            val pre = event("delayed-$source", source).copy(state = GameState.PRE)
+            delay.apply(listOf(pre), 30_000, now - 1_000)
+            val live = pre.copy(state = GameState.LIVE)
+            val clock = now + 1_000
+            val held = delay.apply(listOf(live), 30_000, clock).single()
+            assertEquals(GameState.PRE, held.state)
+            val selected = follows(selection)
+            assertSame(held, SportsEventListings.visibleKnown(listOf(held), selected, clock).single())
+            assertSame(held, SportsEventListings.forPage(listOf(held), listOf(live), selected,
+                now - hour, now + hour, clock).single())
+            assertSame(held, SportsEventListings.forPage(emptyList(), listOf(held), selected,
+                now - hour, now + hour, clock).single())
+
+            val released = delay.apply(listOf(live), 30_000, now + 31_000).single()
+            assertSame(live, released)
+            assertSame(released, SportsEventListings.visibleKnown(listOf(released), selected, now + 31_000).single())
+            assertSame(released, SportsEventListings.forPage(emptyList(), listOf(released), selected,
+                now - hour, now + hour, now + 31_000).single())
+        }
+    }
+
     @Test fun scheduleAndGuideChoicesRecoverOnlyTheirCardsBeforeMySportsCap() {
         val guides = (1..30).map { event("guide-$it", EventSource.GUIDE, at = now + it) }
         val scheduled = event("Portugal Sprint Race", EventSource.FIXTURES)
