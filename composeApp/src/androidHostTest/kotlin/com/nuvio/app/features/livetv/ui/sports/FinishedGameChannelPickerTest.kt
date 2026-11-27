@@ -28,7 +28,7 @@ class FinishedGameChannelPickerTest {
 
     @Test fun choosingAnAlternateTunesThatChannelEvenWithNoReplay() {
         compose.setContent {
-            NuvioTheme { FinishedGameChannelPicker(listOf(main, alternate), listOf(main, alternate), false, { played = it }, {}) }
+            NuvioTheme { FinishedGameChannelPicker(listOf(main, alternate), listOf(main, alternate), false, { channel, _ -> played = channel }, {}) }
         }
         compose.onNodeWithText("Watch live channel").assertIsDisplayed()
         compose.runOnIdle { assertNull(played) }
@@ -38,7 +38,7 @@ class FinishedGameChannelPickerTest {
 
     @Test fun aFinishedGameWithoutAMatchCanTuneAnUnassignedPlaylistChannel() {
         compose.setContent {
-            NuvioTheme { FinishedGameChannelPicker(emptyList(), listOf(alternate), false, { played = it }, {}) }
+            NuvioTheme { FinishedGameChannelPicker(emptyList(), listOf(alternate), false, { channel, _ -> played = channel }, {}) }
         }
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText(alternate.name)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(alternate.name).performClick()
@@ -48,7 +48,7 @@ class FinishedGameChannelPickerTest {
     @Test fun anEmptyLiveLookupDoesNotOfferPlayback() {
         var searching by mutableStateOf(true)
         compose.setContent {
-            NuvioTheme { FinishedGameChannelPicker(emptyList(), emptyList(), searching, { played = it }, {}) }
+            NuvioTheme { FinishedGameChannelPicker(emptyList(), emptyList(), searching, { channel, _ -> played = channel }, {}) }
         }
         compose.onNodeWithText("No live channels found for this game.").assertDoesNotExist()
         compose.runOnIdle { searching = false }

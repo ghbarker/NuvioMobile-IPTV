@@ -191,6 +191,27 @@ class SportsWatchPolicyTest {
         assertTrue(SportsWatchPolicy.allowedChannels(emptyList(), matches, locked).isEmpty())
     }
 
+    @Test fun `overtime suggestions honor event exclusions and current playback permissions`() {
+        val game = event("game", GameState.POST)
+        val normal = channel("local")
+        val addon = channel("addon:abc:event:0").copy(sourceId = SportsAddonSource.SOURCE_ID)
+        val installed = rules(addons = setOf("addon:abc:"))
+        assertTrue(installed.permitsOvertime(game, addon, matched = true))
+        assertFalse(installed.permitsOvertime(game, addon, matched = false))
+        assertFalse(rules().permitsOvertime(game, addon, matched = true))
+        val blocked = installed.copy(sports = SportsSettings(blocked = setOf("game|${addon.key}", "game|local")))
+        assertFalse(blocked.permitsOvertime(game, addon, matched = true))
+        assertFalse(blocked.permitsOvertime(game, normal, matched = true))
+        assertTrue(blocked.permitsOvertime(game, normal, matched = false))
+        val hidden = installed.copy(sports = SportsSettings(hiddenLeagues = setOf(game.leagueId)))
+        assertFalse(hidden.permitsOvertime(game, addon, matched = true))
+        assertFalse(hidden.permitsOvertime(game, normal, matched = false))
+        val locked = installed.copy(user = LiveUserState(lockedGroups = setOf(normal.groupId)),
+            live = LiveTvSettings(parentalPin = "1234"))
+        assertFalse(locked.permitsOvertime(game, addon, matched = true))
+        assertFalse(locked.permitsOvertime(game, normal, matched = false))
+    }
+
     @Test fun `score-delayed event objects pass through without refreshing or rewriting scores`() {
         val delayed = event("game").copy(status = "Delayed clock", note = "Delayed event")
         val result = SportsWatchPolicy.games(listOf(delayed), emptyMap(), emptyMap(),

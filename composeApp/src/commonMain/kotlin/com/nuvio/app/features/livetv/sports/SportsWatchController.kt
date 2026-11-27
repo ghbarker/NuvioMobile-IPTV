@@ -175,12 +175,11 @@ internal class SportsWatchController(private val profileId: Int?) {
         freshSource(channel, rules()) == channel && profileIsCurrent()
 
     /** A live broadcast returned by an explicit search on a finished game's page. */
-    fun overtimeChannel(candidate: LiveChannel): LiveChannel? {
+    fun overtimeChannel(event: SportsEvent, candidate: LiveChannel, matched: Boolean): LiveChannel? {
         if (!profileIsCurrent()) return null
-        val currentRules = rules()
-        val channel = if (candidate.sourceId == SportsAddonSource.SOURCE_ID) candidate.takeIf(currentRules::permitsAddon)
-            else freshSource(candidate, currentRules)
-        return channel?.takeIf { profileIsCurrent() }
+        val channel = if (candidate.sourceId == SportsAddonSource.SOURCE_ID) candidate
+            else LiveTvRepository.displayChannels.value.firstOrNull { it.key == candidate.key }
+        return channel?.takeIf { rules().permitsOvertime(event, it, matched) && profileIsCurrent() }
     }
 
     fun seedChannel(key: String?): LiveChannel? {

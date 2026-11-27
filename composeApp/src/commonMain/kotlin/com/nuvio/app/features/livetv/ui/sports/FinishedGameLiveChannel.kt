@@ -65,7 +65,9 @@ internal fun FinishedGameLiveChannelAction(
     DisposableEffect(controller) { onDispose(controller::close) }
     val allowed by controller.allowedChannels.collectAsStateWithLifecycle()
     val rules by controller.permissionRules.collectAsStateWithLifecycle(initialValue = null)
-    val playlist = remember(allowed) { allowed.filter { it.sourceId != SportsAddonSource.SOURCE_ID } }
+    val playlist = remember(allowed, rules, event.leagueId) {
+        allowed.filter { it.sourceId != SportsAddonSource.SOURCE_ID && rules?.permitsOvertime(event, it, matched = false) == true }
+    }
     val streams by produceState<List<ChannelMatch>?>(null, event.id, searchAddons, addons.addons) {
         value = null
         value = if (!searchAddons) emptyList() else try {
@@ -77,13 +79,14 @@ internal fun FinishedGameLiveChannelAction(
         }
     }
     val choices = remember(matches, playlist, streams, rules) {
-        val liveAddons = streams.orEmpty().map { it.channel }.filter { rules?.permitsAddon(it) == true }
+        val liveAddons = streams.orEmpty().map { it.channel }
         val current = (playlist + liveAddons).associateBy { it.key }
-        (matches.mapNotNull { current[it.channel.key] } + liveAddons).distinctBy { it.key }
+        (matches.mapNotNull { current[it.channel.key] } + liveAddons)
+            .distinctBy { it.key }.filter { rules?.permitsOvertime(event, it, matched = true) == true }
     }
     val unavailable = stringResource(Res.string.livetv_channel_gone)
-    fun tune(candidate: LiveChannel) {
-        val channel = controller.overtimeChannel(candidate)
+    fun tune(candidate: LiveChannel, matched: Boolean) {
+        val channel = controller.overtimeChannel(event, candidate, matched)
         open = false
         if (channel != null) onPlay(channel, null) else NuvioToastController.show(unavailable)
     }
@@ -95,13 +98,13 @@ internal fun FinishedGameChannelPicker(
     matches: List<LiveChannel>,
     playlist: List<LiveChannel>,
     searching: Boolean,
-    onPick: (LiveChannel) -> Unit,
+    onPick: (channel: LiveChannel, matched: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var browsing by remember { mutableStateOf(false) }
     val title = stringResource(Res.string.livetv_sports_watch_live_channel)
     if (browsing || (matches.isEmpty() && !searching && playlist.isNotEmpty())) {
-        ChannelPickerDialog(title = title, onPick = onPick, onDismiss = onDismiss, channels = playlist)
+        ChannelPickerDialog(title = title, onPick = { onPick(it, false) }, onDismiss = onDismiss, channels = playlist)
         return
     }
     DialogSurface(onDismissRequest = onDismiss, title = title, message = stringResource(Res.string.livetv_sports_final_tune_hint)) {
@@ -109,7 +112,7 @@ internal fun FinishedGameChannelPicker(
         if (!searching && matches.isEmpty()) Text(stringResource(Res.string.livetv_sports_no_live_channels))
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
             items(matches, key = { it.key }) { channel ->
-                DialogOption(text = channel.name, description = channel.sourceName, selected = false, onClick = { onPick(channel) })
+                DialogOption(text = channel.name, description = channel.sourceName, selected = false, onClick = { onPick(channel, true) })
             }
         }
         if (playlist.isNotEmpty()) DialogOption(text = stringResource(Res.string.livetv_sports_choose_another_channel), selected = false, onClick = { browsing = true })
