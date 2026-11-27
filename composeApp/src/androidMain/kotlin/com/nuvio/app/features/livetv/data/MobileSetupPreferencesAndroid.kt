@@ -243,20 +243,20 @@ internal class MobileSetupPreferencesAndroid(
         private val seekModes = com.nuvio.app.features.player.thumbs.SeekThumbWhen.entries.map { it.name }
         private val seekSizes = com.nuvio.app.features.player.thumbs.SEEK_THUMB_STORAGE_CHOICES
         private val seekNames = mapOf(
-            "enabled" to MobileSetupSettings.SEEK_ENABLED, "include_4k" to MobileSetupSettings.SEEK_4K,
+            "enabled" to MobileSetupSettings.SEEK_ENABLED,
             "when" to MobileSetupSettings.SEEK_WHEN, "storage_mb" to MobileSetupSettings.SEEK_MB,
         )
+        // Choices that depend on each device's memory or screen stay on it: Include 4K (seek
+        // previews), buffer and cache sizes, native memory, subtitle render quality, brightness
+        // and the torrent cache size.
         // Do not export whole preference files. Player, updater and other stores also hold
         // account credentials, pending playback, diagnostics and identifiers local to a device.
         private val stores = listOf(
-            Store("seek_thumbnails", bools = setOf("enabled", "include_4k"), ints = setOf("storage_mb"), strings = setOf("when")),
+            Store("seek_thumbnails", bools = setOf("enabled"), ints = setOf("storage_mb"), strings = setOf("when")),
             Store("nuvio_player_settings", profiled = true,
-                bools = setOf("use_legacy_player_layout", "exo_native_memory_enabled", "vod_cache_enabled", "buffer_engine_enabled", "intro_submit_enabled"),
-                ints = setOf("vod_cache_size_mb", "min_buffer_ms", "max_buffer_ms", "buffer_for_playback_ms", "buffer_for_playback_after_rebuffer_ms", "back_buffer_duration_ms", "target_buffer_size_mb"),
-                strings = setOf("vod_cache_size_mode", "libass_render_scale", "libass_render_mode"),
-                floats = setOf("playback_brightness")),
+                bools = setOf("use_legacy_player_layout", "intro_submit_enabled")),
             Store("nuvio_autosync_settings", profiled = true, bools = setOf("preferred_subtitle_auto_sync_on_start", "auto_sync_aggressive_mode"), ints = setOf("auto_sync_tolerance_ms")),
-            Store("torrent_settings", profiled = true, bools = setOf("p2p_enabled", "enable_upload", "hide_torrent_stats"), strings = setOf("torrent_profile", "cache_size")),
+            Store("torrent_settings", profiled = true, bools = setOf("p2p_enabled", "enable_upload", "hide_torrent_stats"), strings = setOf("torrent_profile")),
             Store("nuvio_library_display_settings", profiled = true, strings = setOf("library_display_settings_payload")),
             Store("nuvio_season_view_mode", profiled = true, strings = setOf("season_view_mode")),
             Store("nuvio_discover_selection", profiled = true, strings = setOf("discover_catalog_key")),

@@ -21,7 +21,8 @@ internal object MobileSetupSettings {
     const val PLUGINS_ENABLED = "plugins_enabled"
     const val PLUGINS_GROUPED = "group_streams_by_repository"
     fun profileKey(key: String, profile: String) = "${PREFIX}${key}_profile_$profile"
-    val seekKeys = setOf(SEEK_ENABLED, SEEK_4K, SEEK_WHEN, SEEK_MB)
+    /** Include 4K ([SEEK_4K]) is not here: it stays on each device, whose default depends on its memory. */
+    val seekKeys = setOf(SEEK_ENABLED, SEEK_WHEN, SEEK_MB)
     private val otherAppearance = setOf("selected_app_icon", "library_display_settings_payload",
         "season_view_mode", "show_addon_logo", "use_legacy_player_layout", "playback_brightness")
 

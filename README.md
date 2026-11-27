@@ -51,7 +51,7 @@ Watch several channels, or several games, at the same time.
 - **Setup Sync (Nuvio Account Sync):** sign in to Nuvio and your playlists, guides, favorites, Calendar follows, VPN profiles, behavior and options come back by themselves, on your phone, tablet and TV. Change something on one and it shows up on the others. You can **choose what to sync**.
 - **Works with the TV app:** [Nuvio + IPTV](https://github.com/homelessbrian/NuvioPlusIPTV) for Google TV, Android TV and Fire TV uses the same setup. Set it up once, on whichever screen is easier.
 - **Encrypted:** your saved setup (which includes your IPTV logins) is encrypted before it's stored.
-- **Seek preview** remembers the enable switch, 4K choice, generation timing and storage limit across Android phones, tablets and TVs. Setup Sync can restore preferences even before you add a playlist. Each device generates its own preview images.
+- **Seek preview** remembers the on/off switch, when to make previews and the storage limit across Android phones, tablets and TVs. **Include 4K** stays on each device. Setup Sync can restore preferences even before you add a playlist. Each device generates its own preview images.
 - **Look and layout** carries mobile choices such as Channel Display to your other Android phones and tablets. TV layout has its own saved preferences.
 
 ---
