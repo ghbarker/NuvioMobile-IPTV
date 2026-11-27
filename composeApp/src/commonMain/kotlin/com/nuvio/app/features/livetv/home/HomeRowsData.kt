@@ -127,7 +127,9 @@ internal object HomeLiveRowsData {
         scope.launch {
             combine(
                 vodRows, OnDemandRepository.version, LiveTvPreferences.userState,
-                LiveTvPreferences.settings, ParentalControls.unlocked,
+                // Group labels are presentation only: changing cleanup must not reload titles.
+                LiveTvPreferences.settings.map { it.copy(nameRemovals = "", cleanVodGroupNames = false) }.distinctUntilChanged(),
+                ParentalControls.unlocked,
             ) { rows, _, user, settings, _ -> Triple(rows, user, settings) }
                 // Continue Watching On Demand also follows what you watch.
                 .let { flow ->

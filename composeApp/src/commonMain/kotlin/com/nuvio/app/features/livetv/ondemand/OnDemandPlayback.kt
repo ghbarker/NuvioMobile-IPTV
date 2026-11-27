@@ -1,8 +1,5 @@
 package com.nuvio.app.features.livetv.ondemand
 
-import com.nuvio.app.features.livetv.data.LiveTvPreferences
-import com.nuvio.app.features.livetv.model.LiveTvSettings
-import com.nuvio.app.features.livetv.model.LiveUserState
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.livetv.stalker.StalkerGateway
 import com.nuvio.app.features.livetv.player.LivePlayRequest
@@ -147,25 +144,4 @@ internal object OnDemandPlayback {
             sourceFilename = if (portalStream != null) null else url.substringBefore('?').substringAfterLast('/'),
         )
     }
-}
-
-/** How On Demand's groups are shown: your order, your names, hidden ones left out, and each group's sort. */
-internal object OnDemandGroups {
-    /** [categories] as the page lists them for this profile. */
-    fun visible(categories: List<VodCategory>, user: LiveUserState): List<VodCategory> {
-        val order = user.vodGroupOrder.withIndex().associate { (i, uid) -> uid to i }
-        return categories
-            .filter { !user.hidesVodCategory(it.uid) }
-            .map { c -> user.vodGroupNames[c.uid]?.takeIf { it.isNotBlank() }?.let { c.copy(name = it) } ?: c }
-            .withIndex()
-            .sortedWith(compareBy<IndexedValue<VodCategory>>({ order[it.value.uid] ?: Int.MAX_VALUE }, { it.index }))
-            .map { it.value }
-    }
-
-    /** The sort for a group (or for "all" with [uid] null): yours for that group, else the default sort. */
-    fun sortFor(uid: String?, user: LiveUserState, settings: LiveTvSettings): VodSort =
-        uid?.let { VodSort.parse(user.vodSorts[it]) } ?: VodSort.parse(settings.vodDefaultSort) ?: VodSort.DEFAULT
-
-    fun hide(uid: String) = LiveTvPreferences.updateVodHiddenCategories(show = emptySet(), hide = setOf(uid))
-    fun show(uid: String) = LiveTvPreferences.updateVodHiddenCategories(show = setOf(uid), hide = emptySet())
 }

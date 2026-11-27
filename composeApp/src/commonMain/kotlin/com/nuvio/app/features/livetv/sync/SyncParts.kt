@@ -56,7 +56,7 @@ internal object SyncParts {
         "calendar_hide_spoilers", "calendar_hide_watched", "calendar_skip_news_talk", "calendar_sports", "calendar_new_episode_cards",
         "guide_search_catalog", "guide_search_live", "guide_search_ondemand",
         "vod_search_catalog", "vod_search_live", "vod_search_ondemand", "search_order", "logo_sources_off",
-        "clean_group_names", "browse_by_channel_name",
+        "clean_group_names", "clean_vod_group_names", "browse_by_channel_name",
         "on_demand_enabled", "on_demand_auto_play", "on_demand_addon_posters", "on_demand_streams_position",
         "on_demand_in_streams", "on_demand_play_direct",
         "backup_group_by", "backup_source_order", "backup_quality_order",

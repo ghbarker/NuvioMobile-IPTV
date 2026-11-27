@@ -55,6 +55,7 @@ import com.nuvio.app.features.livetv.model.ChannelGroup
 import com.nuvio.app.features.livetv.ondemand.OnDemandGroups
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodKind
+import com.nuvio.app.features.livetv.ondemand.VodCategory
 import com.nuvio.app.features.livetv.parental.ParentalControls
 import com.nuvio.app.features.livetv.sports.SportsCatalog
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -357,17 +358,20 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
         },
     )
     val names = remember(playlists) { playlists.associate { it.id to it.name } }
-    val vodChoices by produceState(emptyList<RowChoice>(), picker, version, user, settings, moviesLabel, seriesLabel) {
-        if (picker != Picker.VOD_GROUP) return@produceState
+    val vodCategories by produceState(emptyList<VodCategory>(), picker, version) {
+        value = if (picker == Picker.VOD_GROUP) VodKind.entries.flatMap { OnDemandRepository.categories(it) } else emptyList()
+    }
+    val vodChoices = remember(vodCategories, user, settings, moviesLabel, seriesLabel, playlists) {
         val multi = playlists.size > 1
-        value = listOf(VodKind.MOVIE to moviesLabel, VodKind.SERIES to seriesLabel).flatMap { (kind, kindLabel) ->
-            OnDemandGroups.visible(OnDemandRepository.categories(kind), user)
+        listOf(VodKind.MOVIE to moviesLabel, VodKind.SERIES to seriesLabel).flatMap { (kind, kindLabel) ->
+            OnDemandGroups.visible(vodCategories.filter { it.kind == kind }, user)
                 .filterNot { c -> ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups) }
                 .map { c ->
                     RowChoice(
                         source = HomeLiveRow.VOD_GROUP_PREFIX + c.uid,
-                        title = c.name,
+                        title = OnDemandGroups.name(c, user, settings),
                         detail = listOfNotNull(kindLabel, names[c.playlistId]?.takeIf { multi }, c.count.toString()).joinToString(" · "),
+                        // Persist the provider name, so disabling cleanup restores it on Home.
                         label = c.name,
                     )
                 }
@@ -410,7 +414,7 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
             )
         } else {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
-                items(choices, key = { it.source + "|" + it.title }) { c ->
+                items(choices, key = { if (picker == Picker.VOD_GROUP) it.source else it.source + "|" + it.title }) { c ->
                     if (c.heading) SheetHeading(c.title)
                     else ChoiceRow(c.title, c.detail, more = false) { onPick(c) }
                 }

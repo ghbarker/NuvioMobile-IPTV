@@ -2804,6 +2804,8 @@
     <string name="livetv_epg_shift">Time shift</string>
     <string name="livetv_epg_shift_description">Moves this guide's listings earlier or later, for listings out of step with what's playing</string>
     <string name="livetv_clean_group_names">Also clean group names</string>
+    <string name="livetv_clean_vod_group_names">Clean On Demand group names</string>
+    <string name="livetv_clean_vod_group_names_description">Use the same Channel Name Cleanup words for movie and series groups. Words are set in the TV app and synced. Your renamed groups keep their names.</string>
     <string name="livetv_hide_stray_entries">Hide Stray Entries</string>
     <string name="livetv_hide_stray_entries_description">Leaves out odd leftovers some providers add to their playlists, like a show episode sitting in its own one-item group. Real channels are never hidden</string>
     <string name="livetv_clean_group_names_description">Take the Channel Name Cleanup words (set in the TV app) off group names too, like "| NL | Sports"</string>
