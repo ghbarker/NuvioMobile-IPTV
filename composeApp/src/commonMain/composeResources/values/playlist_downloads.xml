@@ -1,0 +1,12 @@
+<resources>
+    <string name="playlist_download_movie">Download movie</string>
+    <string name="playlist_download_episode">Download episode %1$d</string>
+    <string name="playlist_download_folder">Playlist download folder</string>
+    <string name="playlist_download_choose">Choose a folder</string>
+    <string name="playlist_download_picker_failed">Your device could not open the folder picker.</string>
+    <string name="playlist_download_folder_denied">Choose a folder where Nuvio can save files.</string>
+    <string name="playlist_download_unavailable">This playlist title is unavailable for download.</string>
+    <string name="playlist_download_protected">This title is protected by parental controls.</string>
+    <string name="playlist_download_reconnect">Cannot open the saved file. Reconnect %1$s and try again.</string>
+    <string name="downloads_playlist_already_saved">This title is already in Downloads.</string>
+</resources>

@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +41,9 @@ import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioTypeScale
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.profiles.ProfileRepository
+import nuvio.composeapp.generated.resources.playlist_download_folder
+import nuvio.composeapp.generated.resources.playlist_download_choose
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
@@ -94,6 +98,7 @@ fun DownloadsScreen(
     var actionsItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteItemId by rememberSaveable { mutableStateOf<String?>(null) }
     val speeds = rememberDownloadSpeeds(uiState.items)
+    val picker = rememberPlaylistDownloadFolderPicker(ProfileRepository.activeProfileId)
     val watchStatusOf = remember(watchProgressState, watchedState) {
         { item: DownloadItem -> item.watchStatus(watchProgressState) }
     }
@@ -143,6 +148,15 @@ fun DownloadsScreen(
 
         val showId = selectedShowId
         if (showId == null) {
+            if (picker != null) item(key = "playlist_destination") {
+                TextButton(onClick = picker.choose) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = NuvioTokens.Space.s12)) {
+                        Text(stringResource(Res.string.playlist_download_folder), style = MaterialTheme.typography.labelLarge)
+                        Text(picker.folder?.label ?: stringResource(Res.string.playlist_download_choose),
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
             downloadsRootContent(
                 items = uiState.items,
                 speeds = speeds,

@@ -90,6 +90,8 @@ internal object OnDemandStreams {
                 addonId = GROUP_ID,
                 stalkerSourceId = s.stalkerSourceId,
                 stalkerStream = s.stalkerStream,
+                playlistDownloadUid = s.downloadItemUid,
+                playlistDownloadEpisodeId = s.downloadEpisodeId,
                 behaviorHints = StreamBehaviorHints(
                     bingeGroup = BINGE_GROUP,
                     notWebReady = s.headers.isNotEmpty(),

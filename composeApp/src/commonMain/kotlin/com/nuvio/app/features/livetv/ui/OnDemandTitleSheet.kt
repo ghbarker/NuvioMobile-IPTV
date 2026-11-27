@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -59,6 +61,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.ondemand.rememberPlaylistDownloadAction
 import com.nuvio.app.features.livetv.ondemand.OnDemandPlayback
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodEpisode
@@ -75,6 +78,8 @@ import nuvio.composeapp.generated.resources.livetv_fix_match_vod_scope
 import com.nuvio.app.features.livetv.data.TitleMatchFixes
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_play
+import nuvio.composeapp.generated.resources.playlist_download_movie
+import nuvio.composeapp.generated.resources.playlist_download_episode
 import nuvio.composeapp.generated.resources.livetv_vod_details
 import nuvio.composeapp.generated.resources.livetv_vod_mark_unwatched
 import nuvio.composeapp.generated.resources.livetv_vod_mark_watched
@@ -122,6 +127,8 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
     val poster = match?.poster?.takeIf { it.isNotBlank() } ?: info?.cover ?: item.icon
     val watched = remember(item.uid, match, watchedState.watchedKeys) { OnDemandPlayback.isWatched(item, match) }
     val episodes = info?.episodes.orEmpty()
+    val download = rememberPlaylistDownloadAction(item.uid, title, poster)
+        ?.takeIf { item.stalker == null && OnDemandRepository.playlist(item.playlistId)?.isStalker == false }
     val seasons = remember(episodes) { episodes.map { it.season }.distinct().sorted() }
     val shownSeason = season ?: seasons.firstOrNull()
 
@@ -163,6 +170,10 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
             NuvioBottomSheetDivider()
             if (item.kind == VodKind.MOVIE) {
                 NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { play(item, null) })
+                if (download != null) NuvioBottomSheetActionRow(
+                    title = stringResource(Res.string.playlist_download_movie), icon = Icons.Filled.Download,
+                    onClick = { download(item.uid, null) },
+                )
             }
             NuvioBottomSheetActionRow(
                 title = stringResource(if (watched) Res.string.livetv_vod_mark_unwatched else Res.string.livetv_vod_mark_watched),
@@ -199,7 +210,9 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
                             items(shown.size, key = { shown[it].id + ":" + shown[it].season + ":" + shown[it].episode }) { i ->
                                 val e = shown[i]
                                 val seen = remember(e, match, watchedState.watchedKeys) { OnDemandPlayback.isWatched(item, match, e) }
-                                EpisodeRow(e, seen, onPlay = { play(item, e) }, onToggleWatched = { OnDemandPlayback.toggleWatched(item, match, e, LiveTvClock.nowMs()) })
+                                EpisodeRow(e, seen, onPlay = { play(item, e) },
+                                    onDownload = if (download != null && e.stalker == null) ({ download(item.uid, e.id) }) else null,
+                                    onToggleWatched = { OnDemandPlayback.toggleWatched(item, match, e, LiveTvClock.nowMs()) })
                             }
                         }
                     }
@@ -213,7 +226,7 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
 }
 
 @Composable
-private fun EpisodeRow(e: VodEpisode, watched: Boolean, onPlay: () -> Unit, onToggleWatched: () -> Unit) {
+private fun EpisodeRow(e: VodEpisode, watched: Boolean, onPlay: () -> Unit, onDownload: (() -> Unit)?, onToggleWatched: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s8),
@@ -227,6 +240,9 @@ private fun EpisodeRow(e: VodEpisode, watched: Boolean, onPlay: () -> Unit, onTo
             Text("E${e.episode}  ${e.title}", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(e.durationSecs?.let { "${it / 60} min" }, e.plot).joinToString("  ·  ")
             if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (onDownload != null) IconButton(onClick = onDownload) {
+            Icon(Icons.Filled.Download, contentDescription = stringResource(Res.string.playlist_download_episode, e.episode))
         }
         Icon(
             imageVector = if (watched) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
