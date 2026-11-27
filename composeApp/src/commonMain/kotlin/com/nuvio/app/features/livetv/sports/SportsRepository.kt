@@ -127,7 +127,12 @@ internal object SportsRepository {
     /** Games of teams looked up on a table (their card), by team key: so their game pages open. */
     private val lookedUp = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
     /** Shows found in the guide, by day (the day's start). */
-    private val guideData = MutableStateFlow<Map<Long, List<SportsEvent>>>(emptyMap())
+    private val guideCandidates = MutableStateFlow<Map<Long, List<SportsMatcher.GuideCandidate>>>(emptyMap())
+    private val guideExclusions = follows.map { it.excludedGuideTitles }.distinctUntilChanged().map(::SportsGuideTitleExclusions)
+    private val guideData = combine(guideCandidates, guideExclusions) { days, excluded ->
+        val now = LiveTvClock.nowMs()
+        days.mapValues { (_, candidates) -> matcher.guideEvents(candidates, excluded, now) }
+    }
 
     /** TheSportsDB's TV listings (nuvio-data's sportsdb/tv.json): channels in many countries, for [events]. */
     private val tvData = MutableStateFlow<List<TvListing>>(emptyList())
@@ -312,13 +317,17 @@ internal object SportsRepository {
     private fun dedupeKey(ev: SportsEvent): String = ev.espnId?.let { "e:$it" } ?: ev.id
 
     private val _matches = MutableStateFlow<Map<String, List<ChannelMatch>>>(emptyMap())
+    private val visibleChannelMatches = combine(_matches, guideExclusions) { matches, excluded ->
+        excluded.visibleMatches(matches)
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
     private val _addonLive = MutableStateFlow<Map<String, List<ChannelMatch>>>(emptyMap())
     /**
      * Event id -> the channels showing it, best first, with your "Channels from" region's
      * channels moved up (done here, on what's already matched: changing the region is instant).
      */
     val matches: StateFlow<Map<String, List<ChannelMatch>>> = combine(
-        _matches,
+        visibleChannelMatches,
         settings.map { it.channelRegion }.distinctUntilChanged(),
         _addonLive
     ) { m0, region, addon ->
@@ -705,7 +714,7 @@ internal object SportsRepository {
         val force = forceAll.also { forceAll = false }
         val data = leagueData.value
         val playingKey = LiveTvPlayback.currentKey
-        val playingLeagues = if (playingKey == null) emptySet() else _matches.value
+        val playingLeagues = if (playingKey == null) emptySet() else visibleChannelMatches.value
             .filter { (_, list) -> list.any { it.channel.key == playingKey && it.sure } }
             .keys.mapNotNull { id -> events.value.firstOrNull { it.id == id && it.state == GameState.LIVE }?.leagueId }.toSet()
         // A league counts as "fast" when it needs to be right up to date: one you follow, one
@@ -1452,7 +1461,7 @@ internal object SportsRepository {
                 list.size to h
             }.distinctUntilChanged(),
             settings.map { listOf(it.networkChannels, it.eventChannels, it.teamChannels, it.leagueChannels, it.blocked, it.bestChannelFirst, it.hiddenLeagues, it.region, it.preferredGroups) }.distinctUntilChanged(),
-            follows.map { it.words to it.leagues }.distinctUntilChanged(),
+            follows.map { Triple(it.words, it.leagues, it.excludedGuideTitles) }.distinctUntilChanged(),
             liveRepo.guideGeneration
         ) { a, b, c, d, e -> listOf(a, b, c, d, e) }
         var lastRun = 0L
@@ -1591,7 +1600,8 @@ internal object SportsRepository {
             val items = JSONArray()
             list.forEach { m ->
                 items.put(JSONObject().put("k", m.channel.key).put("s", m.score).put("h", m.how)
-                    .put("q", m.quality ?: JSONObject.NULL).put("c", m.catchup))
+                    .put("q", m.quality ?: JSONObject.NULL).put("c", m.catchup)
+                    .also { row -> m.guideEvidenceTitle?.let { row.put("guideTitle", it) } })
             }
             arr.put(o.put("m", items))
         }
@@ -1608,7 +1618,9 @@ internal object SportsRepository {
             for (j in 0 until items.length()) {
                 val it = items.getJSONObject(j)
                 val ch = chans[it.getString("k")] ?: continue
-                list += ChannelMatch(ch, it.getInt("s"), it.getString("h"), null, if (it.isNull("q")) null else it.getString("q"), it.optBoolean("c"))
+                val how = it.getString("h")
+                val title = if (!it.isNull("guideTitle")) it.getString("guideTitle") else how.takeIf { h -> h.startsWith("Guide: ") }?.removePrefix("Guide: ")
+                list += ChannelMatch(ch, it.getInt("s"), how, null, if (it.isNull("q")) null else it.getString("q"), it.optBoolean("c"), title)
             }
             if (list.isNotEmpty()) out[o.getString("id")] = list
         }
@@ -1656,7 +1668,8 @@ internal object SportsRepository {
             val current = eventById(event.id) ?: event
             val peers = events.value.filterNot { it.id == current.id }
             val found = SportsMatcher().match(SportsMatcher.Input(peers + current, channels, user.channelQuality,
-                live.epgOffsetMinutes * MINUTE, resolved, LiveTvClock.nowMs(), onlyEventId = current.id)).matches
+                live.epgOffsetMinutes * MINUTE, resolved, LiveTvClock.nowMs(), onlyEventId = current.id,
+                excludedGuideTitles = SportsGuideTitleExclusions(follows.value.excludedGuideTitles))).matches
             currentCoroutineContext().ensureActive()
             val rows = found[current.id].orEmpty()
             synchronized(publishLock) {
@@ -1690,6 +1703,7 @@ internal object SportsRepository {
             val now = LiveTvClock.nowMs()
             val shift = live.epgOffsetMinutes * MINUTE
             val f = follows.value
+            val excluded = SportsGuideTitleExclusions(f.excludedGuideTitles)
             val guideLeagues = SportsCatalog.all.filter { it.guideOnly }
             val keys = channels.associateBy { it.key }
             // Channels found from names, listed networks and your picks go on game cards before
@@ -1700,7 +1714,7 @@ internal object SportsRepository {
             val quickAt = LiveTvClock.nowMs()
             if (events.value.isNotEmpty()) runCatching {
                 matcher.match(SportsMatcher.Input(events = events.value, channels = channels, quality = user.channelQuality,
-                    shiftMs = shift, settings = s, now = now, readGuide = false, networksUntil = now + 3 * HOUR))
+                    shiftMs = shift, settings = s, now = now, readGuide = false, networksUntil = now + 3 * HOUR, excludedGuideTitles = excluded))
             }.onSuccess { quick ->
                 if (!quickOnly) LiveTvLoadReport.add("Sports quick channels: ${quick.matches.size} games in ${LiveTvClock.nowMs() - quickAt} ms")
                 if (quick.matches.isNotEmpty()) {
@@ -1712,14 +1726,14 @@ internal object SportsRepository {
                 }
             }
             if (quickOnly) return@withContext
-            val days = HashMap<Long, List<SportsEvent>>()
+            val days = HashMap<Long, List<SportsMatcher.GuideCandidate>>()
             for (offset in -1..1) {
                 val start = dayStart(offset)
                 days[start] = runCatching {
-                    matcher.guideEvents(start, dayStart(offset + 1), guideLeagues, f.words, keys, shift, now)
+                    matcher.guideCandidates(start, dayStart(offset + 1), guideLeagues, f.words, keys, shift)
                 }.getOrDefault(emptyList())
             }
-            guideData.value = days
+            guideCandidates.value = days
             val scheduled = events.value
             val extra = if (requested.isEmpty()) emptyList() else {
                 val missing = requested.keys - scheduled.map { it.id }.toSet()
@@ -1735,6 +1749,7 @@ internal object SportsRepository {
                     settings = s,
                     now = now,
                     // Nobody is looking at the Sports page: take short breaks so the phone stays smooth.
+                    excludedGuideTitles = excluded,
                     gentle = viewers.value == 0
                 )
             )
@@ -1804,10 +1819,11 @@ internal object SportsRepository {
     private fun rebuildLiveScores() {
         val evs = events.value.associateBy { it.id }
         val perChannel = HashMap<String, MutableList<Pair<SportsEvent, ChannelMatch>>>()
+        val excluded = SportsGuideTitleExclusions(follows.value.excludedGuideTitles)
         for ((id, list) in _matches.value) {
             val ev = evs[id] ?: continue
             if (ev.state != GameState.LIVE) continue
-            list.filter { it.score >= LIKELY_SCORE }.forEach { m -> perChannel.getOrPut(m.channel.key) { ArrayList() } += ev to m }
+            list.filter { it.score >= LIKELY_SCORE && !excluded.hides(it) }.forEach { m -> perChannel.getOrPut(m.channel.key) { ArrayList() } += ev to m }
         }
         val out = HashMap<String, SportsEvent>()
         val cards = HashMap<String, SportsEvent>()
@@ -2198,6 +2214,14 @@ internal object SportsRepository {
 
     fun removeWord(word: String) = updateFollows { f -> f.copy(words = f.words.filterNot { it.equals(word, true) }) }
 
+    fun addExcludedGuideTitle(title: String) = updateFollows { f ->
+        f.copy(excludedGuideTitles = SportsGuideTitleExclusions.unique(f.excludedGuideTitles + title))
+    }
+
+    fun removeExcludedGuideTitle(title: String) = updateFollows { f ->
+        f.copy(excludedGuideTitles = f.excludedGuideTitles - title)
+    }
+
     fun markSetUp() = updateFollows { it.copy(setUp = true) }
 
     fun isReminded(ev: SportsEvent): Boolean = follows.value.reminders.any { it.eventId == ev.id }
@@ -2289,7 +2313,7 @@ internal object SportsRepository {
 
     /** The channel to tune for a reminder or "watch now": the best match, if any. */
     fun bestChannel(eventId: String): ChannelMatch? =
-        _matches.value[eventId]?.let { ChannelRegions.regionFirst(it, settings.value.channelRegion) }?.firstOrNull()
+        visibleChannelMatches.value[eventId]?.let { ChannelRegions.regionFirst(it, settings.value.channelRegion) }?.firstOrNull()
 
     /** The event with this id, from everything known (null once it's dropped out of the window). */
     fun eventById(id: String): SportsEvent? = events.value.firstOrNull { it.id == id } ?: known.value.firstOrNull { it.id == id }

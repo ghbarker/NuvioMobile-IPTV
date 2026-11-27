@@ -1,0 +1,7 @@
+<resources>
+    <string name="livetv_sports_exclude_title">Exclude a title…</string>
+    <string name="livetv_sports_exclude_title_hint">Hide Sports listings when their TV guide title contains these words.</string>
+    <string name="livetv_sports_exclude_title_example">Paddock Live Show</string>
+    <string name="livetv_sports_excluded_titles">Excluded titles</string>
+    <string name="livetv_sports_remove_excluded_title">Remove %1$s</string>
+</resources>

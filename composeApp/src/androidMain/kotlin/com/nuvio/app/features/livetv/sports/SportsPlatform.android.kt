@@ -57,5 +57,6 @@ internal actual object SportsPlatform {
         try { Thread.sleep(ms) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
     }
 
+    actual fun composeUnicode(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFC)
     actual fun foldAccents(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFD).replace(MARKS, "")
 }

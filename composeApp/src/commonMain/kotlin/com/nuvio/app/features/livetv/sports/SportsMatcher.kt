@@ -38,7 +38,8 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         /** Restrict this search to one event. Peer tournaments still disambiguate generic listings. */
         val onlyEventId: String? = null,
         /** Keep these events' explicit searches effective during later automatic rounds. */
-        val requestedIds: Set<String> = emptySet()
+        val requestedIds: Set<String> = emptySet(),
+        val excludedGuideTitles: SportsGuideTitleExclusions = SportsGuideTitleExclusions(emptyList())
     )
 
     class Result(val matches: Map<String, List<ChannelMatch>>, val summary: String)
@@ -107,6 +108,8 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         val found = HashMap<String, HashMap<String, Found>>()
         fun add(eventId: String, key: String, score: Int, how: String, program: EpgProgram?) {
             if (key !in byKey || score <= 0) return
+            // A quick match can have guide cards from a round that began before the rule changed.
+            if (how.startsWith("Guide: ") && program != null && input.excludedGuideTitles.matches(program.title)) return
             val m = found.getOrPut(eventId) { HashMap() }
             val cur = m[key]
             if (cur == null || score > cur.score) m[key] = Found(key, score, how, program ?: cur?.program)
@@ -257,7 +260,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             val prepared = hits.mapNotNull { (key, p0) ->
                 val ch = byKey[key] ?: return@mapNotNull null
                 val p = if (input.shiftMs == 0L) p0 else p0.copy(startMs = p0.startMs + input.shiftMs, stopMs = p0.stopMs + input.shiftMs)
-                if (fillerOrLoop(ch, p)) return@mapNotNull null
+                if (input.excludedGuideTitles.matches(p.title) || fillerOrLoop(ch, p)) return@mapNotNull null
                 // The guide's own label for studio shows and replays, when it has one.
                 val cat = norm(p.category.orEmpty())
                 if (hasWord(cat, "sports non event") || hasWord(cat, "classic sport event")) return@mapNotNull null
@@ -395,6 +398,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                                 ev.id in cardSearch && (nonFightBroadcast(norm(ch.name)) || showText?.let(::nonFightBroadcast) == true) -> 0
                                 otherNumberedCard(cardSearch[ev.id], norm(ch.name)) || otherNumberedCard(cardSearch[ev.id], showText) -> 0
                                 p == null -> if (keys.size < 400 && national) 45 else 0
+                                input.excludedGuideTitles.matches(p.title) -> 0
                                 // The guide says it's a different game: not this one.
                                 terms[ev.id]?.otherGame(showText!!) == true -> 0
                                 sporty.any { hasWord(norm(p.title), it) } && SportsCatalog.NOT_LIVE_WORDS.none { hasWord(norm(p.title), it) } ->
@@ -466,23 +470,21 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
      * Shows in the guide for sports ESPN doesn't cover (darts, snooker, rugby…) and names you
      * follow: live shows on [dayStart, dayEnd) whose title says so.
      */
-    fun guideEvents(
+    fun guideCandidates(
         dayStart: Long,
         dayEnd: Long,
         leagues: List<League>,
         followedWords: List<String>,
         channels: Map<String, LiveChannel>,
-        shiftMs: Long,
-        now: Long
-    ): List<SportsEvent> {
+        shiftMs: Long
+    ): List<GuideCandidate> {
         val leagueWords = leagues.flatMap { l -> l.guideWords.map { it to l } }
         val hits = ArrayList<Pair<String, EpgProgram>>()
         runCatching {
             if (leagueWords.isNotEmpty()) hits += db.findByWords(dayStart - shiftMs, dayEnd - shiftMs, dayStart - shiftMs, leagueWords.map { it.first }, inDescription = false)
             if (followedWords.isNotEmpty()) hits += db.findByWords(dayStart - shiftMs, dayEnd - shiftMs, dayStart - shiftMs, followedWords, inDescription = true)
         }
-        val groups = LinkedHashMap<String, MutableList<Pair<String, EpgProgram>>>()
-        val meta = HashMap<String, Pair<League?, String?>>()
+        val candidates = ArrayList<GuideCandidate>()
         val seen = HashSet<String>()
         for ((key, p0) in hits) {
             val ch = channels[key] ?: continue
@@ -510,13 +512,20 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             if (league == null && word == null) continue
             val clean = cleanTitle(p.title)
             val g = norm(clean).trim() + "|" + (p.startMs / (15 * MINUTE))
-            groups.getOrPut(g) { ArrayList() } += key to p
-            val prev = meta[g]
-            meta[g] = (prev?.first ?: league) to (prev?.second ?: word)
+            candidates += GuideCandidate(g, key, p, league, word)
         }
+        return candidates
+    }
+
+    class GuideCandidate(val group: String, val channel: String, val program: EpgProgram, val league: League?, val word: String?)
+
+    /** Group only surviving airings, so hidden copies cannot donate their time, channel or description. */
+    fun guideEvents(candidates: List<GuideCandidate>, excluded: SportsGuideTitleExclusions, now: Long): List<SportsEvent> {
+        val groups = candidates.asSequence().filterNot { excluded.matches(it.program.title) }.groupBy { it.group }
         return groups.map { (g, list) ->
-            val p = list.first().second
-            val (league, word) = meta[g] ?: (null to null)
+            val p = list.first().program
+            val league = list.firstNotNullOfOrNull { it.league }
+            val word = list.firstNotNullOfOrNull { it.word }
             SportsEvent(
                 id = "guide:" + g.hashCode().toUInt().toString(16) + ":" + (p.startMs / 60_000),
                 leagueId = league?.id ?: OTHER_ID,
@@ -532,7 +541,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                 status = null,
                 away = null, home = null,
                 source = EventSource.GUIDE,
-                guideHits = list,
+                guideHits = list.map { it.channel to it.program },
                 endMs = p.stopMs,
                 word = word
             )

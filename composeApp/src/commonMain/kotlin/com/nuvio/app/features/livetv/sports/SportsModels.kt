@@ -170,7 +170,13 @@ data class ChannelMatch(
     val how: String,
     val program: EpgProgram?,
     val quality: String?,
-    val catchup: Boolean
+    val catchup: Boolean,
+    /** Title supporting an automatic guide match, kept when its programme has expired from the cache. */
+    val guideEvidenceTitle: String? = when {
+        how.startsWith("Guide: ") -> how.removePrefix("Guide: ")
+        how.endsWith(" listed by ESPN") -> program?.title
+        else -> null
+    }
 ) {
     val sure: Boolean get() = score >= 80
 }
@@ -320,7 +326,9 @@ data class SportsFollows(
      */
     val order: List<String> = emptyList(),
     /** Single games with score alerts on (Score alerts on the game page). */
-    val alertGames: List<GameAlertPick> = emptyList()
+    val alertGames: List<GameAlertPick> = emptyList(),
+    /** Phrases to hide when they occur in a Sports guide listing's title. */
+    val excludedGuideTitles: List<String> = emptyList()
 ) {
     val isEmpty: Boolean get() = teams.isEmpty() && leagues.isEmpty() && words.isEmpty() && pins.isEmpty()
 
@@ -350,6 +358,7 @@ data class SportsFollows(
         })
         .put("leagues", JSONArray(leagues.toList()))
         .put("words", JSONArray(words))
+        .put("excludedGuideTitles", JSONArray(excludedGuideTitles))
         .put("reminders", JSONArray().also { a ->
             reminders.forEach { r -> a.put(JSONObject().put("e", r.eventId).put("t", r.title).put("s", r.startMs).also { o -> r.autoSwitch?.let { o.put("a", it) } }) }
         })
@@ -388,6 +397,7 @@ data class SportsFollows(
                     teams = teams,
                     leagues = emptySet(),
                     words = o.optJSONArray("words").strings(),
+                    excludedGuideTitles = SportsGuideTitleExclusions.unique(o.optJSONArray("excludedGuideTitles").strings()),
                     reminders = reminders,
                     setUp = o.optBoolean("setUp", false),
                     // "Every game" leagues (from before there was one Follow) are followed leagues now.

@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,6 +69,7 @@ import com.nuvio.app.features.livetv.sports.LeagueKind
 import com.nuvio.app.features.livetv.sports.Sport
 import com.nuvio.app.features.livetv.sports.SportsCatalog
 import com.nuvio.app.features.livetv.sports.SportsEvent
+import com.nuvio.app.features.livetv.sports.SportsGuideTitleExclusions
 import com.nuvio.app.features.livetv.sports.SportsFollows
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.SportsRows
@@ -84,6 +86,11 @@ import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_save
 import nuvio.composeapp.generated.resources.livetv_sports_add_name
 import nuvio.composeapp.generated.resources.livetv_sports_add_name_hint
+import nuvio.composeapp.generated.resources.livetv_sports_exclude_title
+import nuvio.composeapp.generated.resources.livetv_sports_exclude_title_hint
+import nuvio.composeapp.generated.resources.livetv_sports_exclude_title_example
+import nuvio.composeapp.generated.resources.livetv_sports_excluded_titles
+import nuvio.composeapp.generated.resources.livetv_sports_remove_excluded_title
 import nuvio.composeapp.generated.resources.livetv_sports_browse
 import nuvio.composeapp.generated.resources.livetv_sports_follow
 import nuvio.composeapp.generated.resources.livetv_sports_following
@@ -314,6 +321,8 @@ internal fun TeamPickerSheet(league: League, follows: SportsFollows, onOpenLeagu
 
 // ------------------------------------------------------------------ Following
 
+private enum class NameAction { Follow, Exclude }
+
 /** Everything you follow, in My Sports' order (drag to arrange), with unfollow, plus a name to add. */
 @Composable
 internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings, actions: SportsActions) {
@@ -330,7 +339,7 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
-    var addingName by remember { mutableStateOf(false) }
+    var nameAction by rememberSaveable { mutableStateOf<NameAction?>(null) }
     var pickingLeague by remember { mutableStateOf<League?>(null) }
     LaunchedEffect(Unit) { if (!follows.setUp) repo.markSetUp() }
     LazyColumn(
@@ -340,11 +349,12 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
     ) {
         item(key = "add") {
-            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), modifier = Modifier.padding(vertical = NuvioTokens.Space.s4)) {
-                Chip(label = stringResource(Res.string.livetv_sports_add_name), selected = false, onClick = { addingName = true })
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), modifier = Modifier.padding(vertical = NuvioTokens.Space.s4)) {
+                Chip(label = stringResource(Res.string.livetv_sports_add_name), selected = false, onClick = { nameAction = NameAction.Follow })
+                Chip(label = stringResource(Res.string.livetv_sports_exclude_title), selected = false, onClick = { nameAction = NameAction.Exclude })
             }
         }
-        if (keys.isEmpty()) {
+        if (keys.isEmpty() && follows.excludedGuideTitles.isEmpty()) {
             item(key = "empty") { Text("Follow teams, leagues and names from Search; their games then show under My Sports.", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted) }
         }
         items(keys, key = { it }) { key ->
@@ -388,14 +398,43 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
                 )
             }
         }
+        if (follows.excludedGuideTitles.isNotEmpty()) {
+            item(key = "excluded-titles") {
+                Text(stringResource(Res.string.livetv_sports_excluded_titles), style = MaterialTheme.typography.titleSmall, color = tokens.colors.textMuted)
+            }
+            items(follows.excludedGuideTitles, key = { "excluded:$it" }) { title ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary)
+                    IconButton(onClick = { repo.removeExcludedGuideTitle(title) }) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(Res.string.livetv_sports_remove_excluded_title, title),
+                            tint = tokens.colors.textPrimary,
+                        )
+                    }
+                }
+            }
+        }
     }
-    if (addingName) {
-        var name by remember { mutableStateOf("") }
-        if (LocalScreenActive.current) DialogSurface(onDismissRequest = { addingName = false }, title = stringResource(Res.string.livetv_sports_add_name), message = stringResource(Res.string.livetv_sports_add_name_hint)) {
-            NuvioInputField(value = name, onValueChange = { name = it }, placeholder = "Luke Littler")
+    nameAction?.let { action ->
+        val exclude = action == NameAction.Exclude
+        var name by rememberSaveable(action) { mutableStateOf("") }
+        val valid = if (exclude) {
+            val key = SportsGuideTitleExclusions.key(name)
+            key.isNotEmpty() && follows.excludedGuideTitles.none { SportsGuideTitleExclusions.key(it) == key }
+        } else name.trim().length >= 3
+        if (LocalScreenActive.current) DialogSurface(
+            onDismissRequest = { nameAction = null },
+            title = stringResource(if (exclude) Res.string.livetv_sports_exclude_title else Res.string.livetv_sports_add_name),
+            message = stringResource(if (exclude) Res.string.livetv_sports_exclude_title_hint else Res.string.livetv_sports_add_name_hint),
+        ) {
+            NuvioInputField(value = name, onValueChange = { name = it }, placeholder = if (exclude) stringResource(Res.string.livetv_sports_exclude_title_example) else "Luke Littler")
             DialogButtons {
-                DialogButton(text = stringResource(Res.string.action_cancel), onClick = { addingName = false })
-                DialogButton(text = stringResource(Res.string.action_save), style = DialogButtonStyle.Primary, enabled = name.trim().length >= 3, onClick = { repo.addWord(name); addingName = false })
+                DialogButton(text = stringResource(Res.string.action_cancel), onClick = { nameAction = null })
+                DialogButton(text = stringResource(Res.string.action_save), style = DialogButtonStyle.Primary, enabled = valid, onClick = {
+                    if (exclude) repo.addExcludedGuideTitle(name) else repo.addWord(name)
+                    nameAction = null
+                })
             }
         }
     }

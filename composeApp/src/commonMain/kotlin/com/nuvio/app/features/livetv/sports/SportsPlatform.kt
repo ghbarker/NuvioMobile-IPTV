@@ -14,6 +14,8 @@ internal expect object SportsPlatform {
     /** Sleeps the calling (background) thread for [ms]: a short break while reading the guide so the screen stays smooth. */
     fun pause(ms: Long)
 
+    fun composeUnicode(text: String): String
+
     /** Strips accents the way java.text.Normalizer NFD + mark removal does, where the platform can. */
     fun foldAccents(text: String): String
 }
