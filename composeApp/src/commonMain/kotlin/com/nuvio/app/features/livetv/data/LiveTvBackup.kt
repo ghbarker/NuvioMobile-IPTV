@@ -59,6 +59,11 @@ internal object LiveTvBackup {
             }
             put(name, entry)
         }
+        // Carry the untouched default too, so an explicit settings restore can turn off an
+        // option that was enabled on the receiving device, just as a TV export does.
+        if (LiveTvKeys.cleanVodGroupNames !in data) {
+            put(LiveTvKeys.cleanVodGroupNames, buildJsonObject { put("t", "b"); put("v", false) })
+        }
     }
 
     /** Whether a setup from [exportForSync] has any playlist or guide in it. */

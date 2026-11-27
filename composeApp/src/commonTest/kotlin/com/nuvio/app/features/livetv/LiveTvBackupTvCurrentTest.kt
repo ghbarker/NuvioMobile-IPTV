@@ -57,6 +57,6 @@ class LiveTvBackupTvCurrentTest {
         }
         phone.importFromSync(later)
         val exported = phone.exportForSync()
-        assertEquals(setOf("side_menu_fit"), exported.keys)
+        assertEquals(setOf("side_menu_fit", "clean_vod_group_names"), exported.keys)
     }
 }

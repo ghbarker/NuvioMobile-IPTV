@@ -148,6 +148,7 @@ class LiveTvBackupTest {
             incoming.forEach { (k, v) -> if (k !in LiveTvKeys.SYNC_EXCLUDED) put(k, v) }
             put(LiveTvKeys.epgOffset, entry("i", JsonPrimitive(0)))
             put(LiveTvKeys.catchupShift, entry("i", JsonPrimitive(0)))
+            put(LiveTvKeys.cleanVodGroupNames, entry("b", JsonPrimitive(false)))
         }
         assertEquals(expected.keys, exported.keys)
         for (k in expected.keys) {

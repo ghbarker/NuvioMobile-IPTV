@@ -1,6 +1,7 @@
 package com.nuvio.app.features.livetv
 
 import com.nuvio.app.features.livetv.data.LiveTvBackup
+import com.nuvio.app.features.livetv.data.LiveTvKeys
 import com.nuvio.app.features.livetv.data.LiveTvPreferencesStore
 import com.nuvio.app.features.livetv.data.PrefValue
 import com.nuvio.app.features.livetv.data.exportBackupFileText
@@ -28,6 +29,7 @@ class UsenetBackupCompatibilityTest {
 
     private fun entry(raw: String) = buildJsonObject { put("t", "str"); put("v", raw) }
     private fun data(raw: String = config, name: String = key) = buildJsonObject { put(name, entry(raw)) }
+    private val cleanupDefault = mapOf(LiveTvKeys.cleanVodGroupNames to buildJsonObject { put("t", "b"); put("v", false) })
     private fun store(save: (Map<String, PrefValue>) -> Unit = {}) =
         object : LiveTvPreferencesStore() {
             init { installPersistence(load = { null }, save = save) }
@@ -41,7 +43,7 @@ class UsenetBackupCompatibilityTest {
         importBackupFile(incoming.toString(), phone) {}.getOrThrow()
         assertEquals(incoming[key], phone.exportForSync()[key])
         val exported = exportBackupFileText(phone, deviceId = "synthetic-phone", deviceName = "Phone", nowMs = 1L)
-        assertEquals(incoming, parseBackupFile(exported).getOrThrow().data)
+        assertEquals(JsonObject(incoming + cleanupDefault), parseBackupFile(exported).getOrThrow().data)
         assertTrue(LiveTvBackup.syncHasSources(data("""{"providers":[{"host":"news.example.test"}]}""")))
         assertTrue(LiveTvBackup.syncHasSources(data("""{"indexers":[{"apiUrl":"https://indexer.example.test"}]}""")))
         assertFalse(LiveTvBackup.syncHasSources(data("{}")))
@@ -56,7 +58,7 @@ class UsenetBackupCompatibilityTest {
         assertEquals(incoming, SyncParts.keep(JsonObject(emptyMap()), incoming))
         val phone = store()
         phone.importFromSync(incoming)
-        assertEquals(incoming, phone.exportForSync())
+        assertEquals(JsonObject(incoming + cleanupDefault), phone.exportForSync())
     }
 
     @Test fun malformedReservedFamilyIsRejectedBeforeReplacingExistingSettings() {

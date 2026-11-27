@@ -287,6 +287,7 @@ class LiveTvBackupFileTest {
             original.forEach { (key, value) -> put(key, value) }
             put(LiveTvKeys.epgOffset, int(0))
             put(LiveTvKeys.catchupShift, int(0))
+            put(LiveTvKeys.cleanVodGroupNames, bool(false))
         }
         assertEquals(canonical.keys, exported.keys)
         for (k in canonical.keys) {

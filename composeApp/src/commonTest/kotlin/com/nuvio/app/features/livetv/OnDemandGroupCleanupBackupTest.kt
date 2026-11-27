@@ -25,6 +25,8 @@ class OnDemandGroupCleanupBackupTest {
     @Test fun toggleAndSharedWordsSurvivePortableBackupForAllProfiles() {
         val original = store()
         assertFalse(original.currentSettings().cleanVodGroupNames)
+        assertFalse(original.rawData.value.containsKey(LiveTvKeys.cleanVodGroupNames))
+        assertEquals("false", original.exportForSync()[LiveTvKeys.cleanVodGroupNames]!!.jsonObject["v"]!!.jsonPrimitive.content)
         original.updateSettings { it.copy(cleanVodGroupNames = true, nameRemovals = "UK, HD") }
         val data = original.exportForSync()
         assertEquals("true", data[LiveTvKeys.cleanVodGroupNames]!!.jsonObject["v"]!!.jsonPrimitive.content)
@@ -67,7 +69,7 @@ class OnDemandGroupCleanupBackupTest {
                 put("t", "str")
                 put("v", """{"version":1,"liveTv":{},"playback":{}}""")
             })
-            put(LiveTvKeys.cleanVodGroupNames, buildJsonObject { put("t", "b"); put("v", false) })
+            put(LiveTvKeys.cleanVodGroupNames, store().exportForSync()[LiveTvKeys.cleanVodGroupNames]!!)
         }
         importBackupFile(data.toString(), phone) {}.getOrThrow()
         assertFalse(phone.currentSettings().cleanVodGroupNames)
