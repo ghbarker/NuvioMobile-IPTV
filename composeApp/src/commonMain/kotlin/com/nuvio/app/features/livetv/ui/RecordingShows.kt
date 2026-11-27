@@ -44,6 +44,7 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.features.livetv.model.guideDescriptionText
 import com.nuvio.app.features.livetv.record.LiveTvRecording
 import com.nuvio.app.features.livetv.record.NetworkLibrary
 import com.nuvio.app.features.livetv.record.RecordedShow
@@ -157,7 +158,8 @@ internal fun RecordedShowPage(
                 } }
                 items(show.episodes, key = { recordingEntryKey(it) }) { rec ->
                     RecordingRow(rec, now = recordingAiredMs(rec), onClick = { onPlay(rec) }, onLongClick = { onMenu(rec) },
-                        title = recordingEpisodeLabel(rec), statusLine = statusLines[recordingEntryKey(rec)])
+                        title = recordingEpisodeLabel(rec), statusLine = statusLines[recordingEntryKey(rec)],
+                        synopsis = guideDescriptionText(rec.description)?.trim()?.takeIf { it.isNotEmpty() })
                 }
                 item(key = "delete") {
                     TextButton(onClick = onDeleteAll, enabled = deleteEnabled, modifier = Modifier.fillMaxWidth()) {

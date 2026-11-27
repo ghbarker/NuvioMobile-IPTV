@@ -81,6 +81,8 @@ class RecordingFoldersUiTest {
         val first = compose.onNodeWithText("S01E01")
         val second = compose.onNodeWithText("S01E02")
         first.assertIsDisplayed()
+        compose.onNodeWithText("An old letter arrives.").assertIsDisplayed()
+        compose.onNodeWithText("The guest", substring = true).assertDoesNotExist()
         second.assertIsDisplayed()
         assertTrue(first.fetchSemanticsNode().boundsInRoot.top < second.fetchSemanticsNode().boundsInRoot.top)
         compose.onNodeWithText("Play · S01E01").performClick()
@@ -142,6 +144,7 @@ class RecordingFoldersUiTest {
     private fun rec(episode: String, dir: String, at: Long) = LiveTvRecording(
         id = "same", channelKey = "fixture", channelName = "Fixture channel", channelLogo = null,
         title = "Fixture Show", episode = episode, startedAtMs = at, stopAtMs = at + 60_000,
+        description = if (episode == "S01E01") "\u2063The guest\nAn old letter arrives." else "\u2063The guest",
         status = RecordingStatus.DONE, durationSec = 60.0, sizeBytes = 1_024, dir = dir,
     )
 }

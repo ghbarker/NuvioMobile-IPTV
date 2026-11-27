@@ -467,6 +467,7 @@ private fun recordingTransferLine(
 internal fun RecordingRow(
     rec: LiveTvRecording, now: Long, onClick: () -> Unit, onLongClick: () -> Unit,
     title: String = rec.title + (rec.episode?.let { "  ·  $it" } ?: ""), statusLine: String? = null,
+    synopsis: String? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val liveSeconds = if (rec.isRecording && !rec.fromCatchup) ((now - rec.startedAtMs) / 1000.0).coerceAtLeast(rec.durationSec) else rec.durationSec
@@ -490,6 +491,10 @@ internal fun RecordingRow(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(info, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            synopsis?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
             statusLine?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             rec.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (rec.status == RecordingStatus.FAILED) tokens.colors.danger else tokens.colors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
