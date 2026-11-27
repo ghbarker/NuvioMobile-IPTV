@@ -332,6 +332,18 @@ internal object LiveTvRecorder {
                             rec = noteProblem(rec, problem)
                         }
                         if (finite) break // the whole show has come in
+                    } catch (response: RecordingHlsResponse) {
+                        // An extensionless or redirected URL supplied a playlist. Its first
+                        // response is already open/read, so do not spend another provider open.
+                        hls = true
+                        problem = recordHls(rec, response.finalUrl, hdrs, finite, refresh = refresh,
+                            initialMediaPolicy = mediaPolicy, initialPlaylist = response.text to response.finalUrl) { secs, size ->
+                            rec = progress(rec, secs, size)
+                        }
+                        break
+                    } catch (e: RecordingContentError) {
+                        problem = e.message
+                        break
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: RecordingHttpError) {
@@ -345,7 +357,7 @@ internal object LiveTvRecorder {
                         rec = noteProblem(rec, problem)
                     }
                 }
-                rec = progress(rec, recordedMs / 1000.0, RecordingPlatform.dirSize(rec.dir))
+                if (!hls) rec = progress(rec, recordedMs / 1000.0, RecordingPlatform.dirSize(rec.dir))
             }
         } catch (e: CancellationException) {
             // Stopped by hand: finish below.
@@ -430,6 +442,7 @@ internal object LiveTvRecorder {
         canGiveUp: Boolean = false,
         refresh: (suspend () -> LivePlayRequest)? = null,
         initialMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null,
+        initialPlaylist: Pair<String, String>? = null,
         onProgress: (Double, Long) -> Unit,
     ): String? {
         val began = LiveTvClock.nowMs()
@@ -439,7 +452,8 @@ internal object LiveTvRecorder {
         var mediaPolicy = initialMediaPolicy
         var refreshNeeded = false
         var mediaUrl = url
-        var text = RecordingPlatform.fetchTextAt(mediaUrl, hdrs, mediaPolicy).let { (t, at) -> mediaUrl = at; t }
+        var text = (initialPlaylist ?: RecordingPlatform.fetchTextAt(mediaUrl, hdrs, mediaPolicy)).let { (t, at) -> mediaUrl = at; t }
+        if (!text.removePrefix("\uFEFF").trimStart().startsWith("#EXTM3U")) return "The provider returned an invalid HLS playlist"
         if (STREAM_INF.containsMatchIn(text)) {
             mediaUrl = resolve(mediaUrl, pickVariant(text) ?: return "This channel's stream couldn't be read")
             text = RecordingPlatform.fetchTextAt(mediaUrl, hdrs, mediaPolicy).let { (t, at) -> mediaUrl = at; t }
