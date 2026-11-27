@@ -121,7 +121,7 @@ internal object SportsAddonSource {
 
     /** Limit live add-on searches to explicitly opened broadcasts that could still be running. */
     internal fun canLookForOvertime(ev: SportsEvent, now: Long, addons: List<ManagedAddon>): Boolean {
-        if (ev.state != GameState.POST || now < ev.startMs || (!ev.hasTime && ev.endMs == null)) return false
+        if (ev.state != GameState.POST || !ev.hasTime || now < ev.startMs) return false
         val scheduledEnd = ev.endMs ?: ev.startMs + (SportsCatalog.league(ev.leagueId)?.minutes ?: 180) * 60_000L
         val searchUntil = maxOf(ev.startMs + 8 * 3_600_000L, scheduledEnd + 2 * 3_600_000L)
         return now <= searchUntil && addons.any { it.isActive && liveCatalogs(it, ev).isNotEmpty() }

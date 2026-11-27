@@ -124,6 +124,7 @@ import nuvio.composeapp.generated.resources.livetv_sports_remind
 import nuvio.composeapp.generated.resources.livetv_sports_reminded
 import nuvio.composeapp.generated.resources.livetv_sports_showing_it
 import nuvio.composeapp.generated.resources.livetv_sports_watch_on
+import nuvio.composeapp.generated.resources.livetv_sports_watch_live_channel
 import nuvio.composeapp.generated.resources.livetv_sports_your_pick
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
@@ -952,7 +953,7 @@ private fun ChannelMenuSheet(ev: SportsEvent, m: ChannelMatch, actions: SportsAc
                 Text(m.how, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
             }
         }
-        NuvioBottomSheetActionRow(title = if (ev.state == GameState.POST) "Watch live channel" else "Play", icon = Icons.Filled.PlayArrow, onClick = {
+        NuvioBottomSheetActionRow(title = if (ev.state == GameState.POST) stringResource(Res.string.livetv_sports_watch_live_channel) else "Play", icon = Icons.Filled.PlayArrow, onClick = {
             onDismiss(); actions.onPlay(m.channel, ev.title.takeUnless { ev.state == GameState.POST })
         })
         if (m.catchup) {

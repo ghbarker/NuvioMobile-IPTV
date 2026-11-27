@@ -34,6 +34,11 @@ import com.nuvio.app.features.livetv.sports.SportsWatchController
 import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.livetv_channel_gone
+import nuvio.composeapp.generated.resources.livetv_sports_choose_another_channel
+import nuvio.composeapp.generated.resources.livetv_sports_final_tune_hint
+import nuvio.composeapp.generated.resources.livetv_sports_no_live_channels
+import nuvio.composeapp.generated.resources.livetv_sports_watch_live_channel
 import org.jetbrains.compose.resources.stringResource
 
 /** Final describes the score feed. A viewer can still pick the channel's current broadcast. */
@@ -53,7 +58,7 @@ internal fun FinishedGameLiveChannelAction(
 
     val profile by LiveTvPreferences.activeProfile.collectAsStateWithLifecycle()
     var open by remember(event.id, profile) { mutableStateOf(false) }
-    Chip(label = "Watch live channel", selected = false, onClick = { open = true })
+    Chip(label = stringResource(Res.string.livetv_sports_watch_live_channel), selected = false, onClick = { open = true })
     if (!open) return
 
     val controller = remember(profile) { SportsWatchController(profile) }
@@ -76,10 +81,11 @@ internal fun FinishedGameLiveChannelAction(
         val current = (playlist + liveAddons).associateBy { it.key }
         (matches.mapNotNull { current[it.channel.key] } + liveAddons).distinctBy { it.key }
     }
+    val unavailable = stringResource(Res.string.livetv_channel_gone)
     fun tune(candidate: LiveChannel) {
         val channel = controller.overtimeChannel(candidate)
         open = false
-        if (channel != null) onPlay(channel, null) else NuvioToastController.show("This channel is no longer available")
+        if (channel != null) onPlay(channel, null) else NuvioToastController.show(unavailable)
     }
     FinishedGameChannelPicker(choices, playlist, searching = searchAddons && streams == null, onPick = ::tune, onDismiss = { open = false })
 }
@@ -93,19 +99,20 @@ internal fun FinishedGameChannelPicker(
     onDismiss: () -> Unit,
 ) {
     var browsing by remember { mutableStateOf(false) }
+    val title = stringResource(Res.string.livetv_sports_watch_live_channel)
     if (browsing || (matches.isEmpty() && !searching && playlist.isNotEmpty())) {
-        ChannelPickerDialog(title = "Watch live channel", onPick = onPick, onDismiss = onDismiss, channels = playlist)
+        ChannelPickerDialog(title = title, onPick = onPick, onDismiss = onDismiss, channels = playlist)
         return
     }
-    DialogSurface(onDismissRequest = onDismiss, title = "Watch live channel", message = "The game is listed as final. Choose a channel to see what’s on now.") {
+    DialogSurface(onDismissRequest = onDismiss, title = title, message = stringResource(Res.string.livetv_sports_final_tune_hint)) {
         if (searching) NuvioLoadingIndicator(size = NuvioTokens.Space.s16)
-        if (!searching && matches.isEmpty()) Text("No live channels found for this game.")
+        if (!searching && matches.isEmpty()) Text(stringResource(Res.string.livetv_sports_no_live_channels))
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
             items(matches, key = { it.key }) { channel ->
                 DialogOption(text = channel.name, description = channel.sourceName, selected = false, onClick = { onPick(channel) })
             }
         }
-        if (playlist.isNotEmpty()) DialogOption(text = "Choose another channel", selected = false, onClick = { browsing = true })
+        if (playlist.isNotEmpty()) DialogOption(text = stringResource(Res.string.livetv_sports_choose_another_channel), selected = false, onClick = { browsing = true })
         DialogButtons { DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss) }
     }
 }
