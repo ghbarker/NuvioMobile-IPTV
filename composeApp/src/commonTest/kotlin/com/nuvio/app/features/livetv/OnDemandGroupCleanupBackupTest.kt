@@ -62,7 +62,7 @@ class OnDemandGroupCleanupBackupTest {
     @Test fun settingsOnlyFileCanExplicitlyTurnItOffWithoutRemovingSources() = runTest {
         val phone = store()
         phone.updateSettings { it.copy(cleanVodGroupNames = true) }
-        phone.edit { it[LiveTvKeys.playlists] = """[{"id":"local","name":"Local","url":"https://example.test/list.m3u"}]""" }
+        phone.edit { it[LiveTvKeys.playlists] = PrefValue.Str("""[{"id":"local","name":"Local","url":"https://example.test/list.m3u"}]""") }
         val sources = phone.exportForSync()[LiveTvKeys.playlists]
         val data = buildJsonObject {
             put("device_settings_v1", buildJsonObject {
