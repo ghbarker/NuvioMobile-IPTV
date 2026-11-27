@@ -65,7 +65,7 @@ internal class SportsWatchController(private val profileId: Int?) {
         }, ParentalControls.unlocked.value,
     )
 
-    private val permissionRules = combine(LiveTvPreferences.userState, LiveTvPreferences.settings,
+    val permissionRules = combine(LiveTvPreferences.userState, LiveTvPreferences.settings,
         settings, AddonRepository.uiState, ParentalControls.unlocked) { user, live, sports, addons, unlocked ->
         SportsWatchRules(user, live, sports, addons.addons.filter { it.isActive }.mapTo(HashSet()) {
             "addon:${it.manifestUrl.hashCode().toUInt().toString(16)}:"
@@ -173,6 +173,15 @@ internal class SportsWatchController(private val profileId: Int?) {
 
     fun mayPlay(channel: LiveChannel): Boolean = profileIsCurrent() &&
         freshSource(channel, rules()) == channel && profileIsCurrent()
+
+    /** A live broadcast returned by an explicit search on a finished game's page. */
+    fun overtimeChannel(candidate: LiveChannel): LiveChannel? {
+        if (!profileIsCurrent()) return null
+        val currentRules = rules()
+        val channel = if (candidate.sourceId == SportsAddonSource.SOURCE_ID) candidate.takeIf(currentRules::permitsAddon)
+            else freshSource(candidate, currentRules)
+        return channel?.takeIf { profileIsCurrent() }
+    }
 
     fun seedChannel(key: String?): LiveChannel? {
         if (key == null || !profileIsCurrent()) return null

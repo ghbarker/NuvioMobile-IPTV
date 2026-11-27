@@ -78,7 +78,11 @@ internal object SportsAddonSource {
      * Every add-on is asked at the same time. [onPart] gets what's found so far each time one of
      * them answers with something, so a slow add-on doesn't hold the others back.
      */
-    suspend fun find(ev: SportsEvent, onPart: ((Found) -> Unit)? = null): Found = coroutineScope {
+    suspend fun find(
+        ev: SportsEvent,
+        liveOnly: Boolean = false,
+        onPart: ((Found) -> Unit)? = null,
+    ): Found = coroutineScope {
         val installed = AddonRepository.uiState.value.addons.filter { it.isActive }.distinctBy { it.manifestUrl }
         val vodAddons = installed.filter { a -> a.manifest?.catalogs.orEmpty().any { isVodCatalog(it) && usableForVod(it) } }
             .map { it.displayTitle }.distinct()
@@ -92,7 +96,7 @@ internal object SportsAddonSource {
         installed.mapIndexed { i, a ->
             async {
                 val f = try {
-                    forAddon(a, ev)
+                    forAddon(a, ev, liveOnly)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
@@ -107,12 +111,26 @@ internal object SportsAddonSource {
         lock.withLock { soFar() }
     }
 
-    private suspend fun forAddon(a: ManagedAddon, ev: SportsEvent): Found {
+    private fun liveCatalogs(a: ManagedAddon, ev: SportsEvent): List<AddonCatalog> {
         val catalogs = a.manifest?.catalogs.orEmpty()
-        val live = catalogs.filter { isLiveCatalog(it) }.let { strong ->
+        return catalogs.filter { isLiveCatalog(it) }.let { strong ->
             if (strong.isNotEmpty()) strong
             else catalogs.filter { it.type.equals("sport", true) && !isVodCatalog(it) && !needsGenre(it) }
         }.let { forGame(it, ev, replay = false) }
+    }
+
+    /** Limit live add-on searches to explicitly opened broadcasts that could still be running. */
+    internal fun canLookForOvertime(ev: SportsEvent, now: Long, addons: List<ManagedAddon>): Boolean {
+        if (ev.state != GameState.POST || now < ev.startMs || (!ev.hasTime && ev.endMs == null)) return false
+        val scheduledEnd = ev.endMs ?: ev.startMs + (SportsCatalog.league(ev.leagueId)?.minutes ?: 180) * 60_000L
+        val searchUntil = maxOf(ev.startMs + 8 * 3_600_000L, scheduledEnd + 2 * 3_600_000L)
+        return now <= searchUntil && addons.any { it.isActive && liveCatalogs(it, ev).isNotEmpty() }
+    }
+
+    private suspend fun forAddon(a: ManagedAddon, ev: SportsEvent, liveOnly: Boolean): Found {
+        val live = liveCatalogs(a, ev)
+        if (liveOnly) return Found(liveFor(a, live, ev), emptyList())
+        val catalogs = a.manifest?.catalogs.orEmpty()
         val vod = forGame(catalogs.filter { isVodCatalog(it) && usableForVod(it) }, ev, replay = true)
         if (live.isEmpty() && vod.isEmpty()) return NO_RESULT
         return if (ev.state == GameState.POST) Found(emptyList(), vodFor(a, vod, ev))
