@@ -275,12 +275,15 @@ internal object NetworkLibrary {
     }
 
     /** Deletes a finished recording from the network folder (so from every TV). Null when it worked, else why not. */
-    suspend fun delete(rec: LiveTvRecording): String? {
+    suspend fun delete(rec: LiveTvRecording, folderLabel: String): String? {
         val c = config ?: return "No network folder is set up"
-        if (rec.isRecording) return "It's still recording on a TV. Delete it once it has finished"
+        val listing = state.value
+        if (c.label != folderLabel || listing.folderLabel != folderLabel || !isNetwork(rec)) return "The network folder has changed"
+        val listed = listing.recordings.firstOrNull { it.dir == rec.dir } ?: return "This recording is no longer listed"
+        if (listed.isRecording) return "It's still recording on a TV. Delete it once it has finished"
         return try {
-            NetworkLibraryPlatform.delete(c, idOf(rec))
-            _state.update { s -> s.copy(recordings = s.recordings.filter { it.id != rec.id }) }
+            NetworkLibraryPlatform.delete(c, idOf(listed))
+            _state.update { s -> if (s.folderLabel == folderLabel) s.copy(recordings = s.recordings.filter { it.id != listed.id }) else s }
             refresh(force = true)
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -339,9 +342,9 @@ internal object NetworkLibrary {
     }
 
     /** [delete] in the background (the sheet asking closes straight away), saying how it went. */
-    fun deleteAndTell(rec: LiveTvRecording) {
+    fun deleteAndTell(rec: LiveTvRecording, folderLabel: String) {
         scope.launch {
-            val problem = delete(rec)
+            val problem = delete(rec, folderLabel)
             com.nuvio.app.core.ui.NuvioToastController.show(problem ?: "Deleted from the network folder")
         }
     }

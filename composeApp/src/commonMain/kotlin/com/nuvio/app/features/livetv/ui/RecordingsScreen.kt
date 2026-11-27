@@ -2,6 +2,9 @@ package com.nuvio.app.features.livetv.ui
 
 import com.nuvio.app.features.livetv.record.NetworkLibrary
 import com.nuvio.app.features.livetv.record.NetworkUploads
+import com.nuvio.app.features.livetv.record.OfflineRecordingKey
+import com.nuvio.app.features.livetv.record.OfflineRecordingState
+import com.nuvio.app.features.livetv.record.OfflineRecordings
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -23,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FiberManualRecord
@@ -159,6 +163,15 @@ import nuvio.composeapp.generated.resources.livetv_ui_rec_net_unreachable
 import nuvio.composeapp.generated.resources.livetv_ui_rec_network
 import nuvio.composeapp.generated.resources.livetv_ui_rec_settings
 import nuvio.composeapp.generated.resources.livetv_ui_rec_waiting_net
+import nuvio.composeapp.generated.resources.download_failed
+import nuvio.composeapp.generated.resources.livetv_rec_offline_away
+import nuvio.composeapp.generated.resources.livetv_rec_offline_cancel
+import nuvio.composeapp.generated.resources.livetv_rec_offline_delete_network
+import nuvio.composeapp.generated.resources.updates_downloading_progress
+import nuvio.composeapp.generated.resources.livetv_rec_offline_ready
+import nuvio.composeapp.generated.resources.livetv_rec_offline_remove
+import nuvio.composeapp.generated.resources.livetv_rec_offline_retry
+import nuvio.composeapp.generated.resources.livetv_rec_offline_save
 import nuvio.composeapp.generated.resources.livetv_rec_delete_changed
 import nuvio.composeapp.generated.resources.livetv_rec_delete_incomplete
 
@@ -183,6 +196,7 @@ internal fun RecordingsScreen(
     val notice by RecordingNotices.current.collectAsStateWithLifecycle()
     // The TVs' recordings on the network folder (watch only), read now and every few minutes while open.
     val network by remember { NetworkLibrary.start(); NetworkLibrary.state }.collectAsStateWithLifecycle()
+    val downloads by remember { OfflineRecordings.start(); OfflineRecordings.state }.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
     // Recordings made here for the network folder: copying across, or waiting until it can be reached.
     val uploads by NetworkUploads.state.collectAsStateWithLifecycle()
@@ -198,8 +212,15 @@ internal fun RecordingsScreen(
     LaunchedEffect(notice) { if (notice != null) { NuvioToastController.show(notice.orEmpty()); RecordingNotices.clear() } }
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(15_000) } }
 
-    val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
-    val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
+    // This device's recordings, the network folder's, and network recordings saved on this phone
+    // for offline watching (one card with the original while that folder is listed).
+    val offline = remember(recordings, network.recordings, network.folderLabel, downloads.ready) {
+        recordingEntries(recordings, network, downloads.ready)
+    }
+    val entryOf = remember(offline) { offline.associateBy { it.recording } }
+    fun entryFor(r: LiveTvRecording) = entryOf[r] ?: RecordingEntry(r)
+    val recordingNow = remember(offline) { offline.filter { it.recording.isRecording }.map { it.recording } }
+    val recorded = remember(offline) { offline.filter { !it.recording.isRecording }.map { it.recording } }
     val entries = remember(recorded) { groupRecorded(recorded) }
     val recordedGridState = rememberLazyGridState()
     var openShowKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -217,12 +238,14 @@ internal fun RecordingsScreen(
     val deleteScope = rememberCoroutineScope()
     val deleteChangedText = stringResource(Res.string.livetv_rec_delete_changed)
     val deleteIncompleteText = stringResource(Res.string.livetv_rec_delete_incomplete)
-    val sourceLines = recorded.associate { r -> recordingEntryKey(r) to recordingTransferLine(r, netAway,
-        uploads.copyingId, uploads.progress, waitingForNetwork) }
+    val sourceLines = recorded.associate { r -> recordingEntryKey(r) to (offlineStatusText(entryFor(r).source, downloads)
+        ?: recordingTransferLine(r, netAway && entryFor(r).source !in downloads.ready, uploads.copyingId, uploads.progress, waitingForNetwork)) }
     val awayText = stringResource(Res.string.livetv_ui_rec_away)
-    // A recording on the network folder: plays from there, only when it can be reached.
+    // A recording on the network folder: plays the copy saved on this phone, else from the
+    // folder, only when it can be reached.
     fun play(r: LiveTvRecording) {
-        if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
+        val playable = entryFor(r).playable(downloads.ready, netAway)
+        if (playable != null) onPlay(playable) else NuvioToastController.show(awayText)
     }
     val hasSeries = series.isNotEmpty() || repeats.isNotEmpty()
     // Recorded first. Until a tab is picked, it opens on the first one that has anything.
@@ -241,7 +264,7 @@ internal fun RecordingsScreen(
             show = openShow,
             poster = rememberRecordingPoster(openShow.title, newest.channelName),
             statusLines = sourceLines.mapNotNull { (key, value) -> value?.let { key to it } }.toMap(),
-            networkWarning = awayText.takeIf { netAway && openShow.episodes.any { NetworkLibrary.isNetwork(it) } },
+            networkWarning = awayText.takeIf { netAway && openShow.episodes.any { NetworkLibrary.isNetwork(it) && entryFor(it).source !in downloads.ready } },
             deleteEnabled = !deletingShow,
             modifier = modifier,
             onPlay = ::play,
@@ -268,14 +291,17 @@ internal fun RecordingsScreen(
         // here (a blank list looked like the folder was empty).
         if (netAway) {
             Text(
-                (if (network.recordings.isNotEmpty()) stringResource(Res.string.livetv_ui_rec_away_has)
-                else stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel.orEmpty())) +
+                (when {
+                    downloads.ready.isNotEmpty() -> stringResource(Res.string.livetv_rec_offline_away)
+                    network.recordings.isNotEmpty() -> stringResource(Res.string.livetv_ui_rec_away_has)
+                    else -> stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel.orEmpty())
+                }) +
                     (network.problem?.let { " ${it.trimEnd('.')}." } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
             )
         }
-        if (recordings.isEmpty() && network.recordings.isEmpty() && schedules.isEmpty() && !hasSeries) {
+        if (offline.isEmpty() && schedules.isEmpty() && !hasSeries) {
             Text(stringResource(Res.string.livetv_rec_empty), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s24))
             return@Column
         }
@@ -320,20 +346,22 @@ internal fun RecordingsScreen(
                     val r = (entry as SingleRecording).rec
                     val failed = r.status == RecordingStatus.FAILED
                     val fromTv = NetworkLibrary.isNetwork(r)
+                    val source = entryFor(r).source
+                    val offlineStatus = offlineStatusText(source, downloads)
                     RecordingPosterCard(
                         title = r.title + (r.episode?.let { " · $it" } ?: ""),
                         posterTitle = r.title,
                         channelName = r.channelName,
                         channelLogo = r.channelLogo,
-                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) stringResource(Res.string.livetv_ui_rec_net_unreachable)
+                        line = offlineStatus ?: if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) stringResource(Res.string.livetv_ui_rec_net_unreachable)
                         else if (uploads.copyingId == r.id) stringResource(Res.string.livetv_ui_rec_copying, (uploads.progress * 100).toInt())
                         else if (r.id in waitingForNetwork) stringResource(Res.string.livetv_ui_rec_waiting_net) else listOfNotNull(
                             stringResource(Res.string.livetv_ui_rec_network).takeIf { fromTv },
                             SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
                             RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
                         ).joinToString(" · "),
-                        lineIsError = failed,
-                        onClick = { if (r.status == RecordingStatus.DONE) play(r) else sheet = r },
+                        lineIsError = failed || source in downloads.failed,
+                        onClick = { if (r.status == RecordingStatus.DONE || source in downloads.ready) play(r) else sheet = r },
                         onLongClick = { sheet = r },
                     )
                 }
@@ -419,7 +447,7 @@ internal fun RecordingsScreen(
                                 ?.takeIf { it.status == RecordingStatus.DONE && it.dir == snapshot.dir && it.startedAtMs == snapshot.startedAtMs }
                                 ?: continue
                             if (NetworkLibrary.isNetwork(fresh)) {
-                                NetworkLibrary.delete(fresh)?.let { if (problem == null) problem = it }
+                                NetworkLibrary.delete(fresh, NetworkLibrary.state.value.folderLabel.orEmpty())?.let { if (problem == null) problem = it }
                             } else LiveTvRecorder.delete(fresh.id)
                         }
                         problem?.let { NuvioToastController.show("$deleteIncompleteText $it") }
@@ -430,7 +458,7 @@ internal fun RecordingsScreen(
     }
 
     when (val s = sheet) {
-        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) }, onRename = {
+        is LiveTvRecording -> RecordingSheet(s, entryFor(s), downloads, network, onDismiss = { sheet = null }, onPlay = { play(s) }, onRename = {
             renameNetworkConfig = LiveTvPreferences.currentNetworkFolderJson()
             renameFor = s
         },
@@ -723,7 +751,17 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit): Modifier = co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit, onRename: () -> Unit, onFixMatch: () -> Unit) {
+private fun RecordingSheet(
+    rec: LiveTvRecording,
+    entry: RecordingEntry,
+    downloads: OfflineRecordingState,
+    network: NetworkLibrary.State,
+    onDismiss: () -> Unit,
+    onPlay: () -> Unit,
+    onRename: () -> Unit,
+    onFixMatch: () -> Unit,
+) {
+    val key = entry.source
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -740,24 +778,44 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
                     modifier = Modifier.padding(top = NuvioTokens.Space.s6).heightIn(max = 160.dp)
                         .verticalScroll(rememberScrollState()))
             }
+            offlineStatusText(key, downloads)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, modifier = Modifier.padding(top = NuvioTokens.Space.s6))
+            }
         }
         NuvioBottomSheetDivider()
-        if (rec.status != RecordingStatus.FAILED) {
+        if (rec.status != RecordingStatus.FAILED || key in downloads.ready) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
         }
-        if (!rec.isRecording) {
+        if (key != null && OfflineRecordings.available) {
+            when (entry.downloadAction(downloads, network)) {
+                OfflineAction.REMOVE -> NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_offline_remove),
+                    icon = Icons.Filled.Delete, onClick = { OfflineRecordings.remove(key); close() })
+                OfflineAction.CANCEL -> NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_offline_cancel),
+                    icon = Icons.Filled.Stop, onClick = { OfflineRecordings.cancel(key) })
+                OfflineAction.SAVE, OfflineAction.RETRY -> NuvioBottomSheetActionRow(
+                    title = stringResource(if (key in downloads.failed) Res.string.livetv_rec_offline_retry else Res.string.livetv_rec_offline_save),
+                    icon = Icons.Filled.FileDownload, onClick = { OfflineRecordings.save(key, rec) })
+                null -> Unit
+            }
+        }
+        // A network recording is renamed on the folder, so only while that folder is reachable;
+        // a saved offline copy whose folder isn't listed has nothing to rename.
+        if (!rec.isRecording && (key == null || entry.canDeleteFromNetwork(downloads, network))) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_rename), icon = Icons.Filled.Edit, onClick = { close(onRename) })
         }
         // Wrong poster (a film instead of the show, the US version of a UK show): pick the right one.
         if (!isSportsRecording(rec.title, rec.channelName)) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
         }
-        if (NetworkLibrary.isNetwork(rec)) {
-            // A TV's recording on the network folder: deleting it takes it off every TV too. Not while it records.
-            if (!rec.isRecording) NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = {
-                NetworkLibrary.deleteAndTell(rec)
-                close()
-            })
+        if (key != null) {
+            // A TV's recording on the network folder: deleting it takes it off every TV too. Not
+            // while it records. An offline-only copy is removed from this phone above.
+            if (entry.canDeleteFromNetwork(downloads, network)) {
+                NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_offline_delete_network), icon = Icons.Filled.Delete, onClick = {
+                    NetworkLibrary.deleteAndTell(rec, key.folderLabel)
+                    close()
+                })
+            }
         } else {
             if (rec.isRecording) {
                 NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { LiveTvRecorder.stop(rec.id); close() })
@@ -765,6 +823,18 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = { LiveTvRecorder.delete(rec.id); close() })
         }
         Spacer(Modifier.height(NuvioTokens.Space.s12))
+    }
+}
+
+@Composable
+private fun offlineStatusText(key: OfflineRecordingKey?, downloads: OfflineRecordingState): String? {
+    key ?: return null
+    val progress = downloads.progress[key]
+    return when {
+        key in downloads.ready -> stringResource(Res.string.livetv_rec_offline_ready)
+        progress != null -> stringResource(Res.string.updates_downloading_progress, (progress * 100).toInt().coerceIn(0, 99))
+        key in downloads.failed -> stringResource(Res.string.download_failed)
+        else -> null
     }
 }
 

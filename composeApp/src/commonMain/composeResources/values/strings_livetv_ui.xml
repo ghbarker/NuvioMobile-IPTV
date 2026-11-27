@@ -129,6 +129,13 @@
     <string name="livetv_ui_rec_copying">Copying to network folder · %1$d%</string>
     <string name="livetv_ui_rec_waiting_net">Waiting for network folder</string>
     <string name="livetv_ui_rec_network">Network</string>
+    <string name="livetv_rec_offline_save">Save for offline</string>
+    <string name="livetv_rec_offline_ready">Available offline</string>
+    <string name="livetv_rec_offline_cancel">Cancel download</string>
+    <string name="livetv_rec_offline_retry">Retry download</string>
+    <string name="livetv_rec_offline_remove">Remove download</string>
+    <string name="livetv_rec_offline_delete_network">Delete from network folder</string>
+    <string name="livetv_rec_offline_away">Network folder unavailable. Downloaded recordings can still play.</string>
     <string name="livetv_ui_all">All</string>
     <string name="livetv_ui_all_playlists">All playlists</string>
     <string name="livetv_ui_playlist_all_hidden">All groups hidden</string>
