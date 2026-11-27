@@ -68,6 +68,7 @@ import com.nuvio.app.features.livetv.sports.LeagueKind
 import com.nuvio.app.features.livetv.sports.Sport
 import com.nuvio.app.features.livetv.sports.SportsCatalog
 import com.nuvio.app.features.livetv.sports.SportsEvent
+import com.nuvio.app.features.livetv.sports.SportsEventListings
 import com.nuvio.app.features.livetv.sports.SportsFollows
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.SportsRows
@@ -319,6 +320,7 @@ internal fun TeamPickerSheet(league: League, follows: SportsFollows, onOpenLeagu
 internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings, actions: SportsActions) {
     val tokens = MaterialTheme.nuvio
     val repo = SportsRepository
+    val scheduledLeagues by repo.scheduledGuideLeagues.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val keys = remember(follows) { SportsRows.rowKeys(follows) }
     val listState = rememberLazyListState()
@@ -353,39 +355,49 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
                 val league = key.takeIf { it.startsWith("l:") }?.let { SportsCatalog.league(it.removePrefix("l:")) }
                 val word = key.takeIf { it.startsWith("w:") }?.removePrefix("w:")
                 val teamInfo = team?.let { TeamInfo(it.leagueId, it.teamId, it.name, it.name, it.abbr, null, it.color, null, it.logo) }
-                FollowRow(
-                    band = teamInfo,
-                    title = team?.name ?: league?.name ?: word?.let { "“$it”" } ?: key,
-                    subtitle = when {
-                        team != null -> SportsCatalog.league(team.leagueId)?.name ?: team.leagueId
-                        league != null -> league.sport.label
-                        else -> stringResource(Res.string.livetv_sports_names)
-                    },
-                    leading = {
-                        when {
-                            team != null -> TeamLogo(TeamInfo(team.leagueId, team.teamId, team.name, team.name, team.abbr, null, team.color, null, team.logo), 28.dp)
-                            league != null -> LeagueMark(league, 28.dp)
-                            else -> Icon(Icons.Filled.Check, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(28.dp))
-                        }
-                    },
-                    followed = true,
-                    onToggle = {
-                        when {
-                            team != null -> repo.toggleTeam(TeamInfo(team.leagueId, team.teamId, team.name, team.name, team.abbr, null, team.color, null, team.logo))
-                            league != null -> { if (league.id in follows.pins) repo.togglePin(league.id); if (league.id in follows.leagues) repo.toggleLeague(league.id) }
-                            word != null -> repo.removeWord(word)
-                        }
-                    },
-                    onClick = { if (league != null) actions.onOpenLeague(league) else if (team != null) pickingLeague = SportsCatalog.league(team.leagueId) },
-                    trailing = {
-                        Icon(
-                            Icons.Filled.DragHandle, contentDescription = null, tint = tokens.colors.textMuted,
-                            modifier = Modifier.draggableHandle(
-                                onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            ),
+                Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                    FollowRow(
+                        band = teamInfo,
+                        title = team?.name ?: league?.name ?: word?.let { "“$it”" } ?: key,
+                        subtitle = when {
+                            team != null -> SportsCatalog.league(team.leagueId)?.name ?: team.leagueId
+                            league != null -> league.sport.label
+                            else -> stringResource(Res.string.livetv_sports_names)
+                        },
+                        leading = {
+                            when {
+                                team != null -> TeamLogo(TeamInfo(team.leagueId, team.teamId, team.name, team.name, team.abbr, null, team.color, null, team.logo), 28.dp)
+                                league != null -> LeagueMark(league, 28.dp)
+                                else -> Icon(Icons.Filled.Check, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(28.dp))
+                            }
+                        },
+                        followed = true,
+                        onToggle = {
+                            when {
+                                team != null -> repo.toggleTeam(TeamInfo(team.leagueId, team.teamId, team.name, team.name, team.abbr, null, team.color, null, team.logo))
+                                league != null -> { if (league.id in follows.pins) repo.togglePin(league.id); if (league.id in follows.leagues) repo.toggleLeague(league.id) }
+                                word != null -> repo.removeWord(word)
+                            }
+                        },
+                        onClick = { if (league != null) actions.onOpenLeague(league) else if (team != null) pickingLeague = SportsCatalog.league(team.leagueId) },
+                        trailing = {
+                            Icon(
+                                Icons.Filled.DragHandle, contentDescription = null, tint = tokens.colors.textMuted,
+                                modifier = Modifier.draggableHandle(
+                                    onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                                ),
+                            )
+                        },
+                    )
+                    if (league != null && ((league.guideOnly && (SportsEventListings.hasSourceChoice(league) ||
+                            league.id in scheduledLeagues)) || league.id in follows.listingSources)) {
+                        SportsListingSourceChoices(
+                            selected = follows.listingSource(league.id),
+                            onSelect = { source -> repo.updateFollows { it.withListingSource(league.id, source) } },
+                            modifier = Modifier.padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s8),
                         )
-                    },
-                )
+                    }
+                }
             }
         }
     }

@@ -48,6 +48,7 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.sports.GameState
 import com.nuvio.app.features.livetv.sports.SportsCatalog
+import com.nuvio.app.features.livetv.sports.SportsEventListings
 import com.nuvio.app.features.livetv.sports.SportsDates
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.Standings
@@ -77,7 +78,8 @@ fun SportsLeagueScreen(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { repo.setViewing(false) } }
     val follows by repo.follows.collectAsStateWithLifecycle()
     val settings by repo.settings.collectAsStateWithLifecycle()
-    val known by repo.known.collectAsStateWithLifecycle()
+    val known by repo.listingKnown.collectAsStateWithLifecycle()
+    val scheduledLeagues by repo.scheduledGuideLeagues.collectAsStateWithLifecycle()
     val tables by repo.standings.collectAsStateWithLifecycle()
     val use24h = use24h()
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(30_000) } }
@@ -100,8 +102,9 @@ fun SportsLeagueScreen(
             conference = mine.firstNotNullOfOrNull { id -> t.find(id)?.first?.let(t::tabOf) } ?: t.tabs.first()
         }
     }
-    val games = remember(known, leagueId, now / 60_000L) {
-        known.filter { it.leagueId == leagueId && it.startMs > now - 3 * 86_400_000L }.sortedBy { it.startMs }.take(80)
+    val games = remember(known, follows, leagueId, now / 60_000L) {
+        val leagueEvents = known.filter { it.leagueId == leagueId && it.startMs > now - 3 * 86_400_000L }
+        SportsEventListings.visibleKnown(leagueEvents, follows, now).sortedBy { it.startMs }.take(80)
     }
     val followed = leagueId in follows.pins || leagueId in follows.leagues
 
@@ -115,6 +118,14 @@ fun SportsLeagueScreen(
                 Chip(label = if (followed) "Following" else "Follow", selected = followed, onClick = { repo.togglePin(leagueId) })
             },
         )
+        if (league != null && ((league.guideOnly && (SportsEventListings.hasSourceChoice(league) ||
+                league.id in scheduledLeagues)) || league.id in follows.listingSources)) {
+            SportsListingSourceChoices(
+                selected = follows.listingSource(league.id),
+                onSelect = { source -> repo.updateFollows { it.withListingSource(league.id, source) } },
+                modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s8),
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s6),
             horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),

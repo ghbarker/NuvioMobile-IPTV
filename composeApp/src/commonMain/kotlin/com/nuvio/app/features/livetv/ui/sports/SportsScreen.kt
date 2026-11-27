@@ -143,7 +143,7 @@ fun SportsScreen(
     val settings by repo.settings.collectAsStateWithLifecycle()
     val follows by repo.follows.collectAsStateWithLifecycle()
     val events by repo.events.collectAsStateWithLifecycle()
-    val known by repo.known.collectAsStateWithLifecycle()
+    val known by repo.listingKnown.collectAsStateWithLifecycle()
     val matches by repo.matches.collectAsStateWithLifecycle()
     val loading by repo.loading.collectAsStateWithLifecycle()
     val matching by repo.matching.collectAsStateWithLifecycle()
@@ -203,7 +203,7 @@ fun SportsScreen(
             SportsSearchTab(known, follows, actions, searchQuery)
         } else when (tab) {
             SportsTab.MINE -> MySportsTab(known, follows, settings, matches, now, use24h, actions, onHighlights, onPick = { tabIndex = SportsTab.FOLLOWING.ordinal })
-            SportsTab.ALL -> AllEventsTab(events, follows, settings, matches, now, use24h, loading, actions, onHighlights)
+            SportsTab.ALL -> AllEventsTab(events, known, follows, settings, matches, now, use24h, loading, actions, onHighlights)
             SportsTab.FOLLOWING -> SportsFollowingTab(follows, settings, actions)
             SportsTab.NETWORKS -> SportsNetworksTab(actions)
         }
@@ -406,6 +406,7 @@ private class LeagueGroup(val leagueId: String, val league: League?, val games: 
 @Composable
 private fun AllEventsTab(
     events: List<SportsEvent>,
+    known: List<SportsEvent>,
     follows: SportsFollows,
     settings: SportsSettings,
     matches: Map<String, List<ChannelMatch>>,
@@ -435,8 +436,8 @@ private fun AllEventsTab(
     val filterToChannels = settings.onlyOnMyChannels && hasChannels && matches.isNotEmpty()
     val query = SportsDayQuery(day, sportFilter, dayStart, dayEnd, active, filterToChannels, follows, pick)
     androidx.compose.runtime.SideEffect { SportsWatchSelection.select(mine = false, day = day, sport = sportFilter) }
-    val inputs = remember(events, follows, settings, matches, active, filterToChannels, dayStart, dayEnd, query, now / 60_000L) {
-        SportsDayInputs(query, events, settings, matches, now)
+    val inputs = remember(events, known, follows, settings, matches, active, filterToChannels, dayStart, dayEnd, query, now / 60_000L) {
+        SportsDayInputs(query, events, settings, matches, now, known)
     }
     val currentInputs by rememberUpdatedState(inputs)
     var prepared by remember { mutableStateOf<PreparedSportsPage<SportsDayQuery, SportsDayPage>?>(null) }

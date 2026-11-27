@@ -66,10 +66,11 @@ internal object SportsRows {
             )
             return build(known.filter { of(it.leagueId) }, f, now, null, isMine)
         }
+        val visible = SportsEventListings.visibleKnown(known, follows, now)
         val rows = ArrayList<SportsRow>()
 
         // ---- Live & Upcoming: everything you follow, on now or in the next week
-        val soon = known.filter { ev ->
+        val soon = visible.filter { ev ->
             isMine(ev) && (ev.state == GameState.LIVE ||
                 (ev.state == GameState.PRE && ev.startMs in (now - 3 * HOUR)..(now + 8 * DAY)))
         }.sortedWith(compareBy<SportsEvent> { if (it.state == GameState.LIVE) 0 else 1 }.thenBy { it.startMs })
@@ -88,7 +89,7 @@ internal object SportsRows {
         val leagueGames = if (leagueIds.isEmpty()) emptyMap() else leagueIds.associateWith { ArrayList<SportsEvent>() }
         val wordGames = if (follows.words.isEmpty()) emptyMap() else follows.words.associateWith { ArrayList<SportsEvent>() }
 
-        if (teamGames.isNotEmpty() || leagueGames.isNotEmpty() || wordGames.isNotEmpty()) for (ev in known) {
+        if (teamGames.isNotEmpty() || leagueGames.isNotEmpty() || wordGames.isNotEmpty()) for (ev in visible) {
             if (teamGames.isNotEmpty()) {
                 val away = ev.away?.team?.id
                 val home = ev.home?.team?.id

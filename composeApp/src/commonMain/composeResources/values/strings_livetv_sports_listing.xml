@@ -1,0 +1,7 @@
+<resources>
+    <string name="livetv_sports_listing_title">Event listings</string>
+    <string name="livetv_sports_listing_schedule">Scheduled events</string>
+    <string name="livetv_sports_listing_guide">TV guide listings</string>
+    <string name="livetv_sports_listing_both">Both</string>
+    <string name="livetv_sports_listing_help">Your TV guide still helps find channels for scheduled events.</string>
+</resources>

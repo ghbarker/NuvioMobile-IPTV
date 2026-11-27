@@ -67,6 +67,7 @@ internal class SportsDayInputs(
     val settings: SportsSettings,
     val matches: Map<String, List<ChannelMatch>>,
     val now: Long,
+    val known: List<SportsEvent> = events,
 ) {
     val follows: SportsFollows get() = query.follows
     val active: Set<String> get() = query.active
@@ -106,6 +107,8 @@ internal suspend fun buildSportsDayPage(
     val follows = input.follows
     val dayStart = input.dayStart
     val dayEnd = input.dayEnd
+    val events = SportsEventListings.forPage(input.events, input.known, follows, dayStart,
+        dayEnd + (SportsRepository.DAYS_AHEAD - input.query.day).coerceAtLeast(0) * 86_400_000L, now)
     fun onDay(ev: SportsEvent, dayStart: Long, dayEnd: Long): Boolean = when {
         ev.state == GameState.POST -> {
             val finished = if (ev.hasTime) ev.startMs else minOf(ev.endMs ?: ev.startMs, now)
@@ -118,7 +121,7 @@ internal suspend fun buildSportsDayPage(
     fun wanted(ev: SportsEvent): Boolean =
         ev.leagueId in input.active &&
             (!input.filterToChannels || ev.state == GameState.POST || isMine(ev, follows) || matches[ev.id]?.isNotEmpty() == true)
-    val dayEvents = input.events.filter { ev ->
+    val dayEvents = events.filter { ev ->
         checkpoint()
         onDay(ev, dayStart, dayEnd) && wanted(ev)
     }
@@ -135,7 +138,7 @@ internal suspend fun buildSportsDayPage(
     var nextDay: Int? = null
     var noneAhead = false
     val shown = if (pick == null) bySport else bySport.filter { it.leagueId == pick }.ifEmpty {
-        val league = input.events.filter { checkpoint(); it.leagueId == pick && wanted(it) }
+        val league = events.filter { checkpoint(); it.leagueId == pick && wanted(it) }
         var found: List<SportsEvent> = emptyList()
         for (d in 1..SportsRepository.DAYS_AHEAD) {
             val offset = input.query.day + d
