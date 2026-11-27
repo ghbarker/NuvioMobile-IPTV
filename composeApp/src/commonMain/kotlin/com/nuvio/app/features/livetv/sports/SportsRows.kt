@@ -55,7 +55,10 @@ internal object SportsRows {
      * The rows; with [sport], only that sport's: its teams, its leagues and its games ("Football"
      * from the top bar shows Arsenal, England and the Premier League, not the NFL).
      */
-    fun build(known: List<SportsEvent>, follows: SportsFollows, now: Long, sport: Sport? = null, isMine: (SportsEvent) -> Boolean): MyTeamsPage {
+    fun build(known: List<SportsEvent>, follows: SportsFollows, now: Long, sport: Sport? = null, isMine: (SportsEvent) -> Boolean): MyTeamsPage =
+        buildVisible(SportsEventListings.visibleKnown(known, follows, now), follows, now, sport, isMine)
+
+    private fun buildVisible(known: List<SportsEvent>, follows: SportsFollows, now: Long, sport: Sport?, isMine: (SportsEvent) -> Boolean): MyTeamsPage {
         if (sport != null) {
             fun of(id: String) = SportsCatalog.league(id)?.sport == sport
             val f = follows.copy(
@@ -64,13 +67,12 @@ internal object SportsRows {
                 pins = follows.pins.filter { of(it) },
                 words = emptyList()
             )
-            return build(known.filter { of(it.leagueId) }, f, now, null, isMine)
+            return buildVisible(known.filter { of(it.leagueId) }, f, now, null, isMine)
         }
-        val visible = SportsEventListings.visibleKnown(known, follows, now)
         val rows = ArrayList<SportsRow>()
 
         // ---- Live & Upcoming: everything you follow, on now or in the next week
-        val soon = visible.filter { ev ->
+        val soon = known.filter { ev ->
             isMine(ev) && (ev.state == GameState.LIVE ||
                 (ev.state == GameState.PRE && ev.startMs in (now - 3 * HOUR)..(now + 8 * DAY)))
         }.sortedWith(compareBy<SportsEvent> { if (it.state == GameState.LIVE) 0 else 1 }.thenBy { it.startMs })
@@ -89,7 +91,7 @@ internal object SportsRows {
         val leagueGames = if (leagueIds.isEmpty()) emptyMap() else leagueIds.associateWith { ArrayList<SportsEvent>() }
         val wordGames = if (follows.words.isEmpty()) emptyMap() else follows.words.associateWith { ArrayList<SportsEvent>() }
 
-        if (teamGames.isNotEmpty() || leagueGames.isNotEmpty() || wordGames.isNotEmpty()) for (ev in visible) {
+        if (teamGames.isNotEmpty() || leagueGames.isNotEmpty() || wordGames.isNotEmpty()) for (ev in known) {
             if (teamGames.isNotEmpty()) {
                 val away = ev.away?.team?.id
                 val home = ev.home?.team?.id

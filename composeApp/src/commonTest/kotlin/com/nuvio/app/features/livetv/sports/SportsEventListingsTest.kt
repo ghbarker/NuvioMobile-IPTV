@@ -75,6 +75,20 @@ class SportsEventListingsTest {
             now - hour, now + hour, now))
     }
 
+    @Test fun separatelyFollowedNamesRemainInUpcomingWithAndWithoutASportFilter() {
+        val word = event("guide-word", EventSource.GUIDE, word = "Rider Name")
+        val ordinary = event("guide", EventSource.GUIDE)
+        val scheduled = event("scheduled", EventSource.FIXTURES)
+        val selected = follows(SportsListingSource.SCHEDULE).copy(words = listOf("rider name"))
+        val known = listOf(word, ordinary, scheduled)
+        for (sport in listOf(null, Sport.RACING)) {
+            val rows = SportsRows.build(known, selected, now, sport) { true }
+            assertEquals(listOf(word.id, scheduled.id), rows.rows.single { it.kind == SportsRow.Kind.UPCOMING }.events.map { it.id })
+        }
+        assertEquals(listOf(word.id), SportsRows.build(known, selected, now) { true }.rows.single { it.kind == SportsRow.Kind.WORD }.events.map { it.id })
+        assertFalse(SportsEventListings.visibleKnown(known, follows(SportsListingSource.SCHEDULE), now).any { it.id == word.id })
+    }
+
     @Test fun restoredCardsAreDeduplicatedAndBoundedToTheRequestedHorizon() {
         val scheduled = event("scheduled", EventSource.FIXTURES)
         val future = event("later", EventSource.FIXTURES, at = now + 10 * hour)
