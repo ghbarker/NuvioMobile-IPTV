@@ -2,6 +2,8 @@ package com.nuvio.app.features.livetv.ui
 
 import com.nuvio.app.features.livetv.record.NetworkLibrary
 import com.nuvio.app.features.livetv.record.NetworkUploads
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -70,6 +72,7 @@ import com.nuvio.app.features.livetv.data.TitleMatchFixes
 import com.nuvio.app.features.livetv.data.LiveTvTimeZones
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.model.guideDescriptionText
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
 import com.nuvio.app.features.livetv.record.LiveTvRecording
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
@@ -603,7 +606,7 @@ private val aboutCache = HashMap<String, String>()
  */
 @Composable
 private fun rememberRecordingAbout(rec: LiveTvRecording): String? {
-    val guide = rec.description?.trim()?.takeIf { it.isNotBlank() }
+    val guide = guideDescriptionText(rec.description)?.trim()?.takeIf { it.isNotBlank() }
     val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
     val pick = fixes[TitleMatchFixes.recordingKey(rec.title)]
     val found by produceState(aboutCache[rec.id], rec.id, guide, pick) {
@@ -712,7 +715,11 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
                 listOfNotNull(rec.channelName, formatLocalDateTime(rec.startedAtMs), rec.endedAtMs?.let { formatClock(it) }, RecordingRules.sizeLabel(rec.sizeBytes).takeIf { rec.sizeBytes > 0 }).joinToString("  ·  "),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
             )
-            rememberRecordingAbout(rec)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = NuvioTokens.Space.s6)) }
+            rememberRecordingAbout(rec)?.let { synopsis ->
+                Text(synopsis, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary,
+                    modifier = Modifier.padding(top = NuvioTokens.Space.s6).heightIn(max = 160.dp)
+                        .verticalScroll(rememberScrollState()))
+            }
         }
         NuvioBottomSheetDivider()
         if (rec.status != RecordingStatus.FAILED) {
