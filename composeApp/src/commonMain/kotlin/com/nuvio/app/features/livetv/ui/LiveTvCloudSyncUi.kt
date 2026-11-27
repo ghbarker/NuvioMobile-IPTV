@@ -204,7 +204,7 @@ internal fun LiveTvCloudSyncSection(isTablet: Boolean) {
                     text = stringResource(Res.string.livetv_ui_sync_what),
                     modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(top = NuvioTokens.Space.s12, bottom = NuvioTokens.Space.s6),
                 )
-                SyncPart.entries.filter { it != SyncPart.LOOK }.forEach { part ->
+                SyncPart.entries.forEach { part ->
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = syncPartLabel(part),

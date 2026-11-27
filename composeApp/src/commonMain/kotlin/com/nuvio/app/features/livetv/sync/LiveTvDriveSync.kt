@@ -6,6 +6,7 @@ import com.nuvio.app.features.livetv.data.LiveTvDirs
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.MobileSetupSettings
 import com.nuvio.app.features.livetv.data.UsenetBackupCompatibility
 import com.nuvio.app.features.livetv.data.asString
 import com.nuvio.app.features.livetv.data.exportForSync
@@ -410,7 +411,10 @@ internal object LiveTvDriveSync {
             val out = first.toMutableMap()
             // A device that lacks TV source settings (it can't open its copy, or never had them)
             // must not erase the copy the other side holds on the first combine.
-            second.forEach { (key, value) -> if (UsenetBackupCompatibility.isKey(key) && key !in out) out[key] = value }
+            second.forEach { (key, value) ->
+                if ((UsenetBackupCompatibility.isKey(key) || MobileSetupSettings.isPortableKey(key)) && key !in out)
+                    out[key] = value
+            }
             for (k in SOURCE_LISTS) {
                 val a = first.optJSONObject(k)
                 val b = second.optJSONObject(k)
@@ -423,7 +427,7 @@ internal object LiveTvDriveSync {
         val out = remote.toMutableMap()
         val keys = (local.keys + base.keys).toSet()
         keys.forEach { k ->
-            if (UsenetBackupCompatibility.isKey(k)) {
+            if (UsenetBackupCompatibility.isKey(k) || MobileSetupSettings.isPortableKey(k)) {
                 // As on the TV: absence alone is never a deletion (the phone only carries these, and
                 // may have lost the key to its copy). An explicit empty configuration still resets them.
                 if (!local.containsKey(k)) return@forEach

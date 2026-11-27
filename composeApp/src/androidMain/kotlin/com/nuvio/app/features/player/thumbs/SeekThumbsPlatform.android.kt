@@ -80,17 +80,26 @@ actual object SeekThumbsPlatform {
         return _settings.value
     }
 
-    actual fun updateSettings(change: (SeekThumbValues) -> SeekThumbValues) {
+    @Synchronized
+    internal fun reloadSettings() {
+        loaded = false
         load()
-        val next = change(_settings.value)
+    }
+
+    @Synchronized
+    actual fun updateSettings(change: (SeekThumbValues) -> SeekThumbValues) {
+        val before = load()
+        val next = change(before)
+        context()?.getSharedPreferences(FILE, Context.MODE_PRIVATE)?.edit()?.apply {
+            // The device-dependent 4K default and a low-memory warning aren't user choices.
+            if (before.enabled != next.enabled) putBoolean(ENABLED, next.enabled)
+            if (before.include4k != next.include4k) putBoolean(INCLUDE_4K, next.include4k)
+            if (before.whenToMake != next.whenToMake) putString(WHEN, next.whenToMake.name)
+            if (before.storageMb != next.storageMb) putInt(STORAGE_MB, next.storageMb)
+            if (before.lastLowMemoryAt != next.lastLowMemoryAt) putLong(LOW_MEMORY_AT, next.lastLowMemoryAt)
+            apply()
+        }
         _settings.value = next
-        context()?.getSharedPreferences(FILE, Context.MODE_PRIVATE)?.edit()
-            ?.putBoolean(ENABLED, next.enabled)
-            ?.putBoolean(INCLUDE_4K, next.include4k)
-            ?.putString(WHEN, next.whenToMake.name)
-            ?.putInt(STORAGE_MB, next.storageMb)
-            ?.putLong(LOW_MEMORY_AT, next.lastLowMemoryAt)
-            ?.apply()
     }
 
     actual fun isLowMemoryDevice(): Boolean = runCatching {

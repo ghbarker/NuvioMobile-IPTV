@@ -8,7 +8,7 @@ internal enum class DnsChoice { SYSTEM, CLOUDFLARE, GOOGLE }
 
 /**
  * The Live TV DNS setting (Android only; [supported] is false where the system's lookup can't be
- * swapped). Per device, not synced: which lookup works depends on the network the device is on.
+ * swapped). Android phones can share their selected resolver through Setup Sync.
  */
 internal expect object LiveTvDns {
     val supported: Boolean

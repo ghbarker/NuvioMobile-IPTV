@@ -1,6 +1,7 @@
 package com.nuvio.app.features.livetv.sync
 
 import com.nuvio.app.features.livetv.data.LiveTvKeys
+import com.nuvio.app.features.livetv.data.MobileSetupSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,7 +23,7 @@ internal enum class SyncPart(val label: String, val description: String, val def
     SPORTS("Sports", "Followed teams and leagues, and your league list.", true),
     CALENDAR("Calendar", "Followed and hidden shows.", true),
     BEHAVIOR("Behavior and options", "How often lists and guides refresh, recording and catch-up options, sorting, search sources and Calendar choices. Not the look, so it is shared with your phone too.", true),
-    LOOK("Look and layout", "Themes, menu, card styles and other visual options.", false),
+    LOOK("Look and layout", "Layout and visual options for your mobile devices.", true),
 }
 
 /**
@@ -92,6 +93,8 @@ internal object SyncParts {
     fun partOf(key: String): SyncPart? {
         val base = key.replace(PROFILE_SUFFIX, "")
         return when {
+            MobileSetupSettings.isAppearanceKey(base) -> SyncPart.LOOK
+            base in MobileSetupSettings.seekKeys || base.startsWith(MobileSetupSettings.PREFIX) -> SyncPart.BEHAVIOR
             base == "vpn_profiles_v1" -> SyncPart.VPN
             base in ALWAYS_KEYS -> null
             base in LOGIN_KEYS -> SyncPart.LOGINS
@@ -104,15 +107,16 @@ internal object SyncParts {
         }
     }
 
-    /**
-     * A phone never syncs its look and layout: the saved copy is shared with TVs, whose look is
-     * different, so [SyncPart.LOOK] is always off here (and not offered in settings).
-     */
-    fun isOn(part: SyncPart): Boolean = part != SyncPart.LOOK && store.getBoolean(KEY + part.name, part.defaultOn)
+    fun isOn(part: SyncPart): Boolean = store.getBoolean(KEY + part.name, part.defaultOn)
 
     fun isOff(part: SyncPart): Boolean = !isOn(part)
 
-    private fun keyIsOn(key: String): Boolean = partOf(key)?.let { isOn(it) } ?: true
+    private fun keyIsOn(key: String): Boolean {
+        val part = partOf(key) ?: return true
+        // The original, unprefixed Look fields in the shared copy belong to TVs.
+        if (part == SyncPart.LOOK && !MobileSetupSettings.isAppearanceKey(key)) return false
+        return isOn(part)
+    }
 
     /**
      * Turns a part on or off on this device. A part just turned on takes the saved copy's values
@@ -120,7 +124,7 @@ internal object SyncParts {
      * changed meanwhile.
      */
     fun set(part: SyncPart, on: Boolean) {
-        if (part == SyncPart.LOOK || isOn(part) == on) return
+        if (isOn(part) == on) return
         store.putBoolean(KEY + part.name, on)
         store.putBoolean(FRESH + part.name, on)
         _revision.value++
@@ -128,13 +132,11 @@ internal object SyncParts {
 
     /** [data] without the parts that are off. */
     fun strip(data: JsonObject): JsonObject {
-        if (SyncPart.entries.all { isOn(it) }) return data
         return JsonObject(data.filterKeys { keyIsOn(it) })
     }
 
     /** [view] plus the entries of the parts that are off, taken from [from]. */
     fun keep(view: JsonObject, from: JsonObject): JsonObject {
-        if (SyncPart.entries.all { isOn(it) }) return view
         val out = view.toMutableMap()
         from.forEach { (k, v) -> if (!keyIsOn(k)) out[k] = v }
         return JsonObject(out)

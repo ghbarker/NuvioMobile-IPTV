@@ -1,5 +1,9 @@
 package com.nuvio.app.features.plugins
 
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.data.MobileSetupSettings
+import com.nuvio.app.features.livetv.data.PrefValue
+
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.addons.httpGetText
@@ -308,12 +312,14 @@ actual object PluginRepository {
 
     actual fun setPluginsEnabled(enabled: Boolean) {
         initialize()
+        saveOption(MobileSetupSettings.PLUGINS_ENABLED, enabled)
         _uiState.update { it.copy(pluginsEnabled = enabled) }
         persist()
     }
 
     actual fun setGroupStreamsByRepository(enabled: Boolean) {
         initialize()
+        saveOption(MobileSetupSettings.PLUGINS_GROUPED, enabled)
         _uiState.update { it.copy(groupStreamsByRepository = enabled) }
         persist()
     }
@@ -584,8 +590,28 @@ actual object PluginRepository {
         activeRefreshJobs.clear()
     }
 
+    private fun optionKey(name: String, slot: Int) = ProfileRepository.state.value.profiles
+        .firstOrNull { it.profileIndex == slot }?.id?.takeIf { it.isNotBlank() }?.let { MobileSetupSettings.profileKey(name, it) }
+
+    private fun saveOption(name: String, enabled: Boolean) {
+        val key = optionKey(name, currentProfileId) ?: return
+        LiveTvPreferences.edit { it[key] = PrefValue.Bool(enabled) }
+    }
+
+    private fun applySavedOptions(profileId: Int) {
+        val local = LiveTvPreferences.rawData.value
+        val enabled = (local[optionKey(MobileSetupSettings.PLUGINS_ENABLED, profileId)] as? PrefValue.Bool)?.value
+        val grouped = (local[optionKey(MobileSetupSettings.PLUGINS_GROUPED, profileId)] as? PrefValue.Bool)?.value
+        if (enabled != null || grouped != null) _uiState.update {
+            it.copy(pluginsEnabled = enabled ?: it.pluginsEnabled, groupStreamsByRepository = grouped ?: it.groupStreamsByRepository)
+        }
+    }
+
     private fun ensureStateLoadedForProfile(profileId: Int) {
-        if (initialized && currentProfileId == profileId) return
+        if (initialized && currentProfileId == profileId) {
+            applySavedOptions(profileId)
+            return
+        }
 
         if (currentProfileId != profileId) {
             cancelActiveRefreshes()
@@ -594,6 +620,7 @@ actual object PluginRepository {
         currentProfileId = profileId
         val loadedState = loadStateAsUiState(profileId)
         _uiState.value = loadedState.state
+        applySavedOptions(profileId)
         initialized = true
         if (loadedState.requiresMigration) persist()
     }

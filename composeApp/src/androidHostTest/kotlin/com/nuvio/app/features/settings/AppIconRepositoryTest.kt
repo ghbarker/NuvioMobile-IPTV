@@ -65,6 +65,15 @@ class AppIconRepositoryTest {
     }
 
     @Test
+    fun setupRestoreChangesBothLauncherAndCachedSelection() = runTest {
+        AppIconRepository.ensureLoaded()
+        AppIconPlatform.saveSelectedIconKey(AppIconOption.EMERALD.key)
+        com.nuvio.app.features.livetv.data.afterMobileSetupPresentationRestore("app_icon_settings")
+        assertEquals(AppIconOption.EMERALD.platformName, AppIconPlatform.currentIconName())
+        assertEquals(AppIconOption.EMERALD, AppIconRepository.state.value.selected)
+    }
+
+    @Test
     fun failedChangeKeepsTheSavedIcon() = runTest {
         AppIconRepository.select(AppIconOption.COPPER)
         val contextField = AppIconPlatform::class.java.getDeclaredField("context").apply {

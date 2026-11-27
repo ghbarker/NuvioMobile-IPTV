@@ -87,7 +87,17 @@ internal actual object AppIconPlatform {
         )
     }
 
-    actual suspend fun activateIcon(name: String?): Boolean {
+    fun applyRestoredIcon() {
+        val savedKey = loadSelectedIconKey() ?: return
+        val option = AppIconOption.entries.find { it.key == savedKey } ?: return
+        if (option.platformName == currentIconName() || setLauncherIcon(option.platformName)) {
+            AppIconRepository.onLauncherIconRestored(option)
+        }
+    }
+
+    actual suspend fun activateIcon(name: String?): Boolean = setLauncherIcon(name)
+
+    private fun setLauncherIcon(name: String?): Boolean {
         val appContext = context ?: return false
         val selectedClass = launcherComponents.firstOrNull { it.first == name }?.second ?: return false
         val packageManager = appContext.packageManager

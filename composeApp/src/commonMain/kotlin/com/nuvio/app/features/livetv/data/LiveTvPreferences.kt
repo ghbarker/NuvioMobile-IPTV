@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -584,6 +585,11 @@ internal object LiveTvCodec {
  */
 internal open class LiveTvPreferencesStore {
     internal open val usesPlatformVpnBackup: Boolean get() = false
+    internal var readPlatformSettings: () -> Map<String, PrefValue> = { emptyMap() }
+    internal var restorePlatformSettings: (Map<String, PrefValue>) -> Unit = {}
+    internal var ownsPlatformSetting: (String) -> Boolean = { false }
+    private val platformChanges = MutableStateFlow(0L)
+    fun platformSettingsChanged() = platformChanges.update { it + 1 }
 
     private val lock = SynchronizedObject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -616,6 +622,11 @@ internal open class LiveTvPreferencesStore {
             saveDevicePersisted = saveDevice
             _data.value = load()?.toMap() ?: emptyMap()
             _device.value = loadDevice()?.toMap() ?: emptyMap()
+        }
+        val migratedLayout = "mobile_setup_layout_migrated"
+        if (_device.value.bool(migratedLayout) != true) {
+            editImported { p -> rememberChangedLayout(p, emptyMap(), migrating = true) }
+            editDevice { it[migratedLayout] = true }
         }
         // A profile chosen before the saved data was loaded gets its first-time copy now.
         runCatching { seedProfile(_profile.value) }
@@ -767,7 +778,7 @@ internal open class LiveTvPreferencesStore {
      */
     private fun turnOnPlaylistGroupsOnce() {
         if (_device.value.bool(LiveTvKeys.groupPlaylistTurnedOn) == true) return
-        edit { it[LiveTvKeys.groupPlaylistHeadings] = true }
+        editImported { it[LiveTvKeys.groupPlaylistHeadings] = true }
         editDevice { it[LiveTvKeys.groupPlaylistTurnedOn] = true }
     }
 
@@ -775,6 +786,26 @@ internal open class LiveTvPreferencesStore {
 
     /** Changes the main store atomically and saves it. */
     fun edit(block: (MutableMap<String, PrefValue>) -> Unit) {
+        editImported { updated ->
+            block(updated)
+            rememberChangedLayout(updated, _data.value)
+        }
+    }
+
+    // Raw layout keys in older backups also belong to the TV. Only changes made here, or
+    // an explicit mobile alias from another phone, may establish a mobile layout preference.
+    private fun rememberChangedLayout(updated: MutableMap<String, PrefValue>, old: Map<String, PrefValue>, migrating: Boolean = false) {
+        val aliases = mutableMapOf<String, PrefValue>()
+        for ((key, value) in updated) {
+            if (old[key] == value || !MobileSetupSettings.isLocalLayout(key, settingDefaults)) continue
+            if ((old[key] ?: settingDefaults[key.replace(LiveTvKeys.PROFILE_SUFFIX, "")]) == value) continue
+            if (migrating && key == LiveTvKeys.groupPlaylistHeadings && value == PrefValue.Bool(true)) continue
+            aliases[MobileSetupSettings.LAYOUT + key] = value
+        }
+        updated.putAll(aliases)
+    }
+
+    internal fun editImported(block: (MutableMap<String, PrefValue>) -> Unit) {
         synchronized(lock) {
             val m = _data.value.toMutableMap()
             block(m)
@@ -1210,6 +1241,8 @@ internal open class LiveTvPreferencesStore {
     fun updateSettings(transform: (LiveTvSettings) -> LiveTvSettings) {
         edit { p -> writeSettings(p, transform(readSettings(p))) }
     }
+
+    internal val settingDefaults by lazy { mutableMapOf<String, PrefValue>().also { writeSettings(it, LiveTvSettings()) }.toMap() }
 
     private fun writeSettings(p: MutableMap<String, PrefValue>, s: LiveTvSettings) {
         p[LiveTvKeys.showInSidebar] = s.showInSidebar
@@ -1849,7 +1882,7 @@ internal open class LiveTvPreferencesStore {
     // ---------- sync ----------
 
     /** Fires whenever anything in Live TV's stored data changes. */
-    val changes: Flow<Unit> = _data.map { }
+    val changes: Flow<Unit> = combine(_data, platformChanges) { _, _ -> }
 
     private fun randomId(length: Int): String {
         val alphabet = "0123456789abcdef"

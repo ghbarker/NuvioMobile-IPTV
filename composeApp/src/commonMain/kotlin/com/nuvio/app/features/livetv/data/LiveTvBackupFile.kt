@@ -107,7 +107,8 @@ internal suspend fun importBackupFile(
     reload: (changedPlaylists: Set<String>) -> Unit = LiveTvRepository::reloadAfterSync,
 ): Result<ImportSummary> = runCatching {
     val info = parseBackupFile(text).getOrThrow()
-    val settingsOnly = !info.hasSources && DeviceSettingsBackupCompatibility.containsValidSettings(info.data)
+    val tvDeviceSettings = DeviceSettingsBackupCompatibility.containsValidSettings(info.data)
+    val settingsOnly = !info.hasSources && (tvDeviceSettings || MobileSetupSettings.hasChoices(info.data))
     if (!info.hasSources && !settingsOnly) throw BackupFileException(BackupFileException.Reason.NO_SOURCES)
     val unavailable = prefs.rawData.value.filterValues { it is PrefValue.UnavailableBackupSecret }.keys
     // Explicit recovery: the file's copies (shape-validated above) replace the ones this phone
@@ -123,7 +124,8 @@ internal suspend fun importBackupFile(
         val before = prefs.exportForSync()
         // A hardware-settings-only file must not clear this phone's existing source setup.
         val options = info.data.filterKeys {
-            SyncParts.partOf(it) !in setOf(SyncPart.LOGINS, SyncPart.VPN) && !UsenetBackupCompatibility.isKey(it)
+            if (tvDeviceSettings) SyncParts.partOf(it) !in setOf(SyncPart.LOGINS, SyncPart.VPN) && !UsenetBackupCompatibility.isKey(it)
+            else MobileSetupSettings.isPortableKey(it)
         }
         val merged = JsonObject(before + options)
         val sources = prefs.importFromSync(merged, applyVpnBackup = false)

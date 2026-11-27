@@ -57,6 +57,7 @@ class SyncComparisonCacheRecoveryTest {
     @get:Rule val temporary = TemporaryFolder()
     private lateinit var context: Context
     private lateinit var local: JsonObject
+    private var sessionOwner = "account-a"
     private val applied = mutableListOf<JsonObject>()
     private val removed = setOf("removed", "removed-guide", "readded", "readded-guide")
 
@@ -70,6 +71,9 @@ class SyncComparisonCacheRecoveryTest {
         LiveTvFiles.initialize(context)
         local = setup(listOf("local", "shared", "readded"), listOf("local-guide", "shared-guide", "readded-guide"))
         mockkObject(LiveTvPreferences, LiveTvDriveSync, LiveTvCloudSync, LiveTvDriveHttp, recordPrivateCalls = true)
+        every { LiveTvCloudSync["tokenFor"](any<String>()) } answers {
+            if (firstArg<String>() == sessionOwner) "token-$sessionOwner" else null
+        }
         mockkStatic("com.nuvio.app.features.livetv.data.LiveTvBackupKt")
         every { LiveTvPreferences.exportForSync() } answers { local }
         every { LiveTvPreferences.removedSourceIds() } returns removed
@@ -176,6 +180,7 @@ class SyncComparisonCacheRecoveryTest {
     }
 
     @Test fun failedCloudSealingNeverRelabelsAnOldAccountCacheAndCanRecover() {
+        sessionOwner = "current-account"
         val old = setup(listOf("previous-account"), emptyList())
         cache("cloud").writeText(old.toString())
         store.putString("cloud_base_user", "previous-account")
@@ -272,6 +277,21 @@ class SyncComparisonCacheRecoveryTest {
         assertLocalPreparationFailure()
     }
 
+    @Test fun changingAccountsDuringFetchDiscardsThePreviousUsersSetup() {
+        val requests = mutableListOf<String>()
+        cloudTransport { method, _ ->
+            requests += method
+            sessionOwner = "account-b"
+            buildJsonObject { put("revision", 7); put("data", remote()) }
+        }
+        suspendInvoke<Unit>(LiveTvCloudSync, "reconcileAndReport", "account-a", null)
+        assertEquals(listOf("GET"), requests)
+        assertTrue(applied.isEmpty())
+        assertEquals(0L, store.getLong("cloud_last_sync"))
+        assertNull(store.getString("cloud_base_user"))
+        verify(exactly = 0) { LiveTvPreferences.forgetRemovedSources(any()) }
+    }
+
     @Test fun localHashFailureReportsLocalSettingsWithoutTransport() {
         every { LiveTvDriveHttp.sha256(any()) } throws IllegalStateException("Synthetic local digest failure")
         assertLocalPreparationFailure()
@@ -344,7 +364,7 @@ class SyncComparisonCacheRecoveryTest {
         assertEquals("Couldn't prepare this phone's Live TV settings for sync. Try again.", LiveTvCloudSync.state.value.message)
         assertEquals(before, local)
         assertTrue(applied.isEmpty())
-        coVerify(exactly = 0) { LiveTvCloudSync["callOnce"](any<String>(), any<String>(), matchNullable<JsonObject> { true }) }
+        coVerify(exactly = 0) { LiveTvCloudSync["callOnce"](any<String>(), any<String>(), any<String>(), matchNullable<JsonObject> { true }) }
         coVerify(exactly = 0) { LiveTvDriveHttp.request(any(), any(), any(), any(), any()) }
         verify(exactly = 0) { LiveTvPreferences.forgetRemovedSources(any()) }
     }
@@ -353,8 +373,9 @@ class SyncComparisonCacheRecoveryTest {
     private fun cloudTransport(respond: (String, JsonObject?) -> JsonObject) {
         val reply = Class.forName("com.nuvio.app.features.livetv.sync.LiveTvCloudSync\$Reply")
             .getDeclaredConstructor(Int::class.javaPrimitiveType, JsonObject::class.java).apply { isAccessible = true }
-        coEvery { LiveTvCloudSync["callOnce"](any<String>(), any<String>(), matchNullable<JsonObject> { true }) } answers {
-            reply.newInstance(200, respond(firstArg(), arg(2)))
+        coEvery { LiveTvCloudSync["callOnce"](any<String>(), any<String>(), any<String>(), matchNullable<JsonObject> { true }) } answers {
+            assertEquals(sessionOwner, firstArg<String>())
+            reply.newInstance(200, respond(arg(1), arg(3)))
         }
     }
 
