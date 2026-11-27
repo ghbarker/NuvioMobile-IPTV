@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -95,6 +96,9 @@ internal expect object NetworkLibraryPlatform {
 
     /** Deletes recording [id] from the folder: its show file(s) and its details. Throws when it can't. */
     suspend fun delete(config: NetworkFolderConfig, id: String)
+
+    /** Patches only a finished recording's title, preserving the original metadata object. */
+    suspend fun rename(config: NetworkFolderConfig, rec: LiveTvRecording, title: String, isCurrent: () -> Boolean): String
 
     /** The folder set up changed (or went): drop the old connection; the VPN lets the new address through. */
     fun configChanged(config: NetworkFolderConfig?)
@@ -209,16 +213,20 @@ internal object NetworkLibrary {
         scope.launch {
             LiveTvPreferences.networkFolderJson.collect { json ->
                 val c = NetworkFolderConfig.fromJson(json)
-                if (c == config && _state.value.folderLabel == c?.label) return@collect
-                config = c
-                runCatching { NetworkLibraryPlatform.configChanged(c) }
-                if (c == null) {
+                // Do not publish an old share's edited metadata into a newly selected share's list.
+                refreshLock.withLock {
+                    if (c == config && _state.value.folderLabel == c?.label) return@withLock
+                    config = c
+                    // Cached raw metadata belongs to this share, even if another share uses the same ids.
                     synchronized(seen) { seen.clear() }
-                    _state.value = State()
-                    runCatching { LiveTvFiles.delete(LiveTvDirs.STATE, CACHE) }
-                } else {
-                    _state.value = State(folderLabel = c.label, recordings = readCache(c.label))
-                    refresh(force = true)
+                    runCatching { NetworkLibraryPlatform.configChanged(c) }
+                    if (c == null) {
+                        _state.value = State()
+                        runCatching { LiveTvFiles.delete(LiveTvDirs.STATE, CACHE) }
+                    } else {
+                        _state.value = State(folderLabel = c.label, recordings = readCache(c.label))
+                        refresh(force = true)
+                    }
                 }
             }
         }
@@ -279,6 +287,34 @@ internal object NetworkLibrary {
             throw e
         } catch (e: Throwable) {
             runCatching { NetworkLibraryPlatform.describe(e, c) }.getOrDefault("The network folder couldn't be reached")
+        }
+    }
+
+    /** Changes the title on the shared folder, so other devices see it on their next refresh. */
+    suspend fun rename(rec: LiveTvRecording, title: String, expectedConfig: String?): String? = refreshLock.withLock {
+        val c = config ?: return@withLock "No network folder is set up"
+        fun current() = config == c && LiveTvPreferences.currentNetworkFolderJson() == expectedConfig
+        if (!current()) return@withLock RecordingRename.FOLDER_CHANGED
+        val latest = _state.value.recordings.firstOrNull { it.id == rec.id }
+        if (latest == null || !RecordingRename.sameRecording(latest, rec)) return@withLock RecordingRename.CHANGED
+        try {
+            val text = NetworkLibraryPlatform.rename(c, rec, title, ::current)
+            if (current()) {
+                val now = LiveTvClock.nowMs()
+                synchronized(seen) { seen[rec.id] = Seen(text, now, now) }
+                val renamed = parse(rec.id, text) ?: error("The recording's saved title couldn't be read")
+                _state.update { it.copy(recordings = it.recordings.map { old -> if (old.id == rec.id) renamed else old }) }
+                val found = synchronized(seen) { seen.mapValues { it.value.info } }
+                withContext(Dispatchers.Default) {
+                    runCatching { writeCache(c.label, found) }
+                }
+            }
+            null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (e is IllegalArgumentException || e is IllegalStateException) e.message ?: "The recording's title couldn't be saved"
+            else runCatching { NetworkLibraryPlatform.describe(e, c) }.getOrDefault("The recording's title couldn't be saved")
         }
     }
 
@@ -398,6 +434,12 @@ internal object NetworkUploads {
 
     /** Copying (or about to): keeps the app running in the background meanwhile. */
     val busy: Boolean get() = _state.value.copyingId != null
+
+    /** A title edit cannot race a copy that already captured the old title and removes its source. */
+    internal fun editWhenIdle(edit: () -> String?): String? {
+        if (!lock.tryLock()) return RecordingRename.COPYING
+        return try { edit() } finally { lock.unlock() }
+    }
 
     /** Recordings started now go to the network folder (Storage is set to it and one is set up). */
     fun wanted(): Boolean =

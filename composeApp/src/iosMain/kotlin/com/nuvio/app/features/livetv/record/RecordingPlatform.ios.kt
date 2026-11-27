@@ -7,6 +7,8 @@ internal actual object RecordingPlatform {
     actual fun listRecordingDirs(): List<String> = emptyList()
     actual fun readText(path: String): String? = null
     actual fun writeText(path: String, text: String) {}
+    actual fun replaceText(path: String, expected: String, text: String): Unit =
+        throw UnsupportedOperationException("Recording isn't available on this device")
     actual fun exists(path: String): Boolean = false
     actual fun deleteDir(path: String) {}
     actual fun dirSize(path: String): Long = 0L

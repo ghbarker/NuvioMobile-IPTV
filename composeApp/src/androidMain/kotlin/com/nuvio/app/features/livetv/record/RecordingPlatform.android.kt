@@ -73,6 +73,18 @@ internal actual object RecordingPlatform {
         if (!tmp.renameTo(f)) { tmp.copyTo(f, overwrite = true); tmp.delete() }
     }
 
+    actual fun replaceText(path: String, expected: String, text: String) {
+        val file = File(path)
+        val temp = File.createTempFile(".info-rename-", ".tmp", file.parentFile)
+        try {
+            FileOutputStream(temp).use { out -> out.write(text.toByteArray(Charsets.UTF_8)); out.fd.sync() }
+            check(file.isFile && file.readText() == expected) { RecordingRename.CHANGED }
+            // Same-directory rename replaces atomically on Android. Never truncate the old
+            // metadata as a fallback when storage is full, removed, or read-only.
+            check(temp.renameTo(file)) { "The recording's title couldn't be saved" }
+        } finally { temp.delete() }
+    }
+
     actual fun exists(path: String): Boolean = File(path).exists()
 
     actual fun deleteDir(path: String) { runCatching { File(path).deleteRecursively() } }

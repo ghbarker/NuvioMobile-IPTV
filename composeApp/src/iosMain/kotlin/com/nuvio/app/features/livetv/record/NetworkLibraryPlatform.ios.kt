@@ -9,6 +9,8 @@ internal actual object NetworkLibraryPlatform {
     actual suspend fun list(config: NetworkFolderConfig): Map<String, String> = throw UnsupportedOperationException("Not available on this device")
     actual fun playUrl(config: NetworkFolderConfig, id: String): String = ""
     actual suspend fun delete(config: NetworkFolderConfig, id: String): Unit = throw UnsupportedOperationException("Not available on this device")
+    actual suspend fun rename(config: NetworkFolderConfig, rec: LiveTvRecording, title: String, isCurrent: () -> Boolean): String =
+        throw UnsupportedOperationException("Not available on this device")
     actual fun configChanged(config: NetworkFolderConfig?) = Unit
     actual fun describe(e: Throwable, config: NetworkFolderConfig): String = "Network folders aren't available on this device"
     actual suspend fun test(config: NetworkFolderConfig, onVpnWait: () -> Unit): String? = "Network folders aren't available on this device"

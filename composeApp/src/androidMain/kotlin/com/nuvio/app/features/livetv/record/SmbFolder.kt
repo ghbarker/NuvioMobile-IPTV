@@ -203,8 +203,8 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
         ).use { f -> f.setLength(length) }
     }
 
-    /** Renames (or moves, within the shared folder) [from] to [to]; fails if [to] is there. */
-    fun rename(from: String, to: String) = call { d ->
+    /** Renames within this share; replacement is explicit, otherwise an existing target fails. */
+    fun rename(from: String, to: String, replaceExisting: Boolean = false) = call { d ->
         d.openFile(
             p(from),
             EnumSet.of(AccessMask.DELETE, AccessMask.GENERIC_READ),
@@ -212,7 +212,7 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
             SMB2ShareAccess.ALL,
             SMB2CreateDisposition.FILE_OPEN,
             EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
-        ).use { f -> f.rename(p(to), false) }
+        ).use { f -> f.rename(p(to), replaceExisting) }
     }
 
     /** True if the file [rel] is there. */

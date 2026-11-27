@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.ImageSearch
@@ -127,6 +128,7 @@ import nuvio.composeapp.generated.resources.livetv_rec_stop
 import nuvio.composeapp.generated.resources.livetv_rec_today
 import nuvio.composeapp.generated.resources.livetv_rec_tomorrow
 import nuvio.composeapp.generated.resources.livetv_recordings
+import nuvio.composeapp.generated.resources.livetv_rec_rename
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -190,6 +192,8 @@ internal fun RecordingsScreen(
     var sheet by remember { mutableStateOf<Any?>(null) }
     // Fix match: the show's name, and whether it's surely a show (null = don't know).
     var fixFor by remember { mutableStateOf<Pair<String, Boolean?>?>(null) }
+    var renameFor by remember { mutableStateOf<LiveTvRecording?>(null) }
+    var renameNetworkConfig by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { LiveTvRecordingScheduler.fireOverdue() }
     LaunchedEffect(notice) { if (notice != null) { NuvioToastController.show(notice.orEmpty()); RecordingNotices.clear() } }
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(15_000) } }
@@ -426,12 +430,23 @@ internal fun RecordingsScreen(
     }
 
     when (val s = sheet) {
-        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) },
+        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) }, onRename = {
+            renameNetworkConfig = LiveTvPreferences.currentNetworkFolderJson()
+            renameFor = s
+        },
             onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
         is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
         is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to true })
         is RepeatRule -> RepeatSheet(s, onDismiss = { sheet = null })
         else -> Unit
+    }
+    renameFor?.let { recording ->
+        RenameRecordingDialog(recording, onDismiss = { renameFor = null }, onSave = { title ->
+            val problem = if (NetworkLibrary.isNetwork(recording)) NetworkLibrary.rename(recording, title, renameNetworkConfig)
+                else LiveTvRecorder.rename(recording, title)
+            if (problem == null) aboutCache.remove(recording.id)
+            problem
+        })
     }
     fixFor?.let { (title, series) ->
         FixMatchSheet(
@@ -708,7 +723,7 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit): Modifier = co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit, onFixMatch: () -> Unit) {
+private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit, onRename: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -729,6 +744,9 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
         NuvioBottomSheetDivider()
         if (rec.status != RecordingStatus.FAILED) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
+        }
+        if (!rec.isRecording) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_rename), icon = Icons.Filled.Edit, onClick = { close(onRename) })
         }
         // Wrong poster (a film instead of the show, the US version of a UK show): pick the right one.
         if (!isSportsRecording(rec.title, rec.channelName)) {

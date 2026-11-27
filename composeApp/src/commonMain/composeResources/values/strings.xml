@@ -3143,4 +3143,10 @@
     <string name="livetv_rec_shared_delete_warning">Episodes in the network folder will also be removed from every TV and phone using that folder.</string>
     <string name="livetv_rec_delete_changed">The network folder changed. Reopen the series and try again; no more episodes were deleted.</string>
     <string name="livetv_rec_delete_incomplete">Some episodes could not be deleted.</string>
+    <string name="livetv_rec_rename">Rename</string>
+    <string name="livetv_rec_rename_title">Rename recording</string>
+    <string name="livetv_rec_rename_hint">Changes only this recording's title. Series rules and future recordings stay the same.</string>
+    <string name="livetv_rec_rename_shared">This shared recording's title will also change on your other devices.</string>
+    <string name="livetv_rec_rename_invalid">Enter a title of 1–200 characters without line breaks.</string>
+    <string name="livetv_rec_rename_error">Couldn't rename this recording. Please try again.</string>
 </resources>
