@@ -81,6 +81,12 @@ internal data class SportsWatchRules(
     fun permitsAddon(channel: LiveChannel): Boolean =
         channel.sourceId == SportsAddonSource.SOURCE_ID &&
             enabledAddonPrefixes.any { channel.key.startsWith(it) } && permits(channel)
+
+    fun permitsOvertime(event: SportsEvent, channel: LiveChannel, matched: Boolean): Boolean {
+        if (event.state != GameState.POST || event.leagueId in sports.hiddenLeagues) return false
+        if (matched && "${event.id}|${channel.key}" in sports.blocked) return false
+        return if (channel.sourceId == SportsAddonSource.SOURCE_ID) matched && permitsAddon(channel) else permits(channel)
+    }
 }
 
 /** Uses already matched Sports sources; it never searches the guide or opens a player. */

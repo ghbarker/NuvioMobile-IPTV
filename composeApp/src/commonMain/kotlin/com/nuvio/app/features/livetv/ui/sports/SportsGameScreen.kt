@@ -130,6 +130,7 @@ import nuvio.composeapp.generated.resources.livetv_sports_remind
 import nuvio.composeapp.generated.resources.livetv_sports_reminded
 import nuvio.composeapp.generated.resources.livetv_sports_showing_it
 import nuvio.composeapp.generated.resources.livetv_sports_watch_on
+import nuvio.composeapp.generated.resources.livetv_sports_watch_live_channel
 import nuvio.composeapp.generated.resources.livetv_sports_your_pick
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
@@ -292,7 +293,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
     // Recording and "fix channel" work on your own playlists' channels, not on an addon's streams.
     val ownChannels = remember(matches) { matches.filter { it.channel.sourceId != SportsAddonSource.SOURCE_ID } }
     // Your sports addons (HighFly, StremVerse…): streams for this game, or replays once it's over.
-    androidx.compose.runtime.DisposableEffect(ev.id) {
+    androidx.compose.runtime.DisposableEffect(ev.id, ev.state == GameState.POST) {
         repo.openGame(ev)
         onDispose { repo.closeGame(ev.id) }
     }
@@ -419,6 +420,9 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                    if (ev.state == GameState.POST) {
+                        FinishedGameLiveChannelAction(ev, now, matches, hasChannels, actions.onPlay)
+                    }
                     if (ev.state != GameState.POST && ev.hasTime) {
                         Chip(label = stringResource(if (reminded) Res.string.livetv_sports_reminded else Res.string.livetv_sports_remind), selected = reminded, onClick = { repo.toggleReminder(ev) })
                     }
@@ -445,7 +449,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
                 }
             }
         }
-        // ---- a finished game: replays and highlights first (your channels aren't showing it any more)
+        // ---- a finished game: replays and highlights first
         if (ev.state == GameState.POST) {
             item(key = "replays-h") { SectionHeading("Replays & highlights", if (replays.isNotEmpty()) replays.size.toString() else null) }
             if (replays.isNotEmpty()) {
@@ -522,7 +526,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
                 val guide = if (m.channel.sourceId == SportsAddonSource.SOURCE_ID || ev.state == GameState.POST) null else guideLine(ev, m, guideNow[m.channel.key], now, use24h)
                 SportsChannelRow(
                     m = m, copies = copies.size, ev = ev, use24h = use24h, guide = guide,
-                    onPlay = { c -> actions.onPlay(c.channel, ev.title) },
+                    onPlay = { c -> actions.onPlay(c.channel, ev.title.takeUnless { ev.state == GameState.POST }) },
                     onLongPress = { c ->
                         if (c.channel.sourceId != SportsAddonSource.SOURCE_ID) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress); channelMenu = c
@@ -758,7 +762,7 @@ private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use2
         when {
             m.score >= 150 -> SportsBadge(stringResource(Res.string.livetv_sports_your_pick), tokens.colors.accent, tokens.colors.onAccent)
             // The guide line says it already; only "maybe" stays next to it.
-            m.sure && guide == null -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
+            m.sure && guide == null && ev.state != GameState.POST -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
             !m.sure -> SportsBadge(stringResource(Res.string.livetv_sports_maybe), tokens.colors.surfaceElevated, tokens.colors.textSecondary)
         }
         Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = tokens.colors.textPrimary)
@@ -944,9 +948,9 @@ internal fun FixChannelDialog(
 
 /** Any channel, by name. */
 @Composable
-internal fun ChannelPickerDialog(title: String, onPick: (LiveChannel) -> Unit, onDismiss: () -> Unit) {
+internal fun ChannelPickerDialog(title: String, onPick: (LiveChannel) -> Unit, onDismiss: () -> Unit, channels: List<LiveChannel>? = null) {
     var query by remember { mutableStateOf("") }
-    val all = remember { SportsRepository.channelsForPicker() }
+    val all = channels ?: remember { SportsRepository.channelsForPicker() }
     var result by remember(all) { mutableStateOf<ChannelPickerSearchResult<LiveChannel>?>(null) }
     LaunchedEffect(all) {
         channelPickerSearchResults(all, snapshotFlow { query }) { it.name }.collect { result = it }
@@ -992,7 +996,9 @@ private fun ChannelMenuSheet(ev: SportsEvent, m: ChannelMatch, actions: SportsAc
                 Text(m.how, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
             }
         }
-        NuvioBottomSheetActionRow(title = "Play", icon = Icons.Filled.PlayArrow, onClick = { onDismiss(); actions.onPlay(m.channel, ev.title) })
+        NuvioBottomSheetActionRow(title = if (ev.state == GameState.POST) stringResource(Res.string.livetv_sports_watch_live_channel) else "Play", icon = Icons.Filled.PlayArrow, onClick = {
+            onDismiss(); actions.onPlay(m.channel, ev.title.takeUnless { ev.state == GameState.POST })
+        })
         if (m.catchup) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_watch_from_start), icon = Icons.Filled.Replay, onClick = {
                 onDismiss()
