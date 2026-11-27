@@ -279,16 +279,22 @@ object DownloadsRepository {
         if (restored.status == DownloadStatus.Downloading) startDownload(restored)
     }
 
-    fun cancelDownload(downloadId: String) {
+    fun cancelDownload(downloadId: String): Boolean {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return true
 
+        val completedInFolder = item.folder != null && item.status == DownloadStatus.Completed
+        if (completedInFolder) {
+            // Keep the entry and its document URI until the removable drive confirms deletion.
+            if (!DownloadsPlatformDownloader.removeFile(item.localFileUri)) return false
+        }
         activeHandles.remove(downloadId)?.cancel()
-        DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
+        if (!completedInFolder) DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persist()
+        return true
     }
 
     private fun loadFromDisk() {

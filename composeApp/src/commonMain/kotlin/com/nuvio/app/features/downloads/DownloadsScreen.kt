@@ -42,6 +42,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioTypeScale
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.profiles.ProfileRepository
+import nuvio.composeapp.generated.resources.playlist_download_reconnect
 import nuvio.composeapp.generated.resources.playlist_download_folder
 import nuvio.composeapp.generated.resources.playlist_download_choose
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
@@ -193,10 +194,13 @@ fun DownloadsScreen(
 
     val deleteItem = deleteItemId?.let { id -> uiState.items.firstOrNull { it.id == id } }
     if (deleteItem != null) {
+        val reconnectMessage = deleteItem.folder?.let { stringResource(Res.string.playlist_download_reconnect, it.label) }
         DeleteDownloadDialog(
             item = deleteItem,
             onConfirm = {
-                DownloadsRepository.cancelDownload(deleteItem.id)
+                if (!DownloadsRepository.cancelDownload(deleteItem.id) && reconnectMessage != null) {
+                    NuvioToastController.show(reconnectMessage)
+                }
                 deleteItemId = null
             },
             onDismiss = { deleteItemId = null },

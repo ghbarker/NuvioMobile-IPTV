@@ -13,6 +13,9 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
@@ -90,6 +93,35 @@ class PlaylistFolderDownloadTest {
                 assertFalse(File(scheduler.directory, name).exists())
                 assertFalse(File(provider.directory, "$name.part").exists())
             }
+        }
+    }
+
+    @Test fun deleteWhileDriveIsDisconnectedKeepsLibraryEntryForReconnect(): Unit = runBlocking {
+        val scheduler = DownloadsPlatformDownloader.scheduler(context)
+        DownloadsStorage.initialize(context)
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(video)))
+            val item = downloadItem(server.url("/movie.mp4").toString()).copy(folder = folder)
+            assertFalse(scheduler.execute(scheduler.store.begin(item)) { })
+            val saved = assertNotNull(scheduler.store.get(item.fileName)).item
+            assertEquals(DownloadStatus.Completed, saved.status)
+            DownloadsStorage.savePayload(buildJsonObject {
+                put("items", Json.encodeToJsonElement(listOf(saved)))
+            }.toString())
+            DownloadsRepository.onProfileChanged()
+
+            provider.mounted = false
+            assertNull(DownloadsRepository.playableLocalFileUri(saved))
+            assertFalse(DownloadsRepository.cancelDownload(saved.id))
+            DownloadsRepository.onProfileChanged()
+            assertEquals(saved, DownloadsRepository.uiState.value.items.single())
+
+            provider.mounted = true
+            val uri = Uri.parse(assertNotNull(DownloadsRepository.playableLocalFileUri(saved)))
+            assertContentEquals(video, context.contentResolver.openInputStream(uri)!!.use { it.readBytes() })
+            assertTrue(DownloadsRepository.cancelDownload(saved.id))
+            assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+            assertFalse(File(provider.directory, item.fileName).exists())
         }
     }
 
