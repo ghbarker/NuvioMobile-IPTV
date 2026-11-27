@@ -245,7 +245,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
                     initialPositionRequestKey = initialPositionRequestKey,
                     resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
-                    playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
+                    playbackEngine = if (playingSavedPlaylistDocument) AndroidPlaybackEngine.ExoPlayer
+                        else playbackEngineOverride ?: resolvedAutoEngine,
                     onInitialPositionHandled = { key, handled ->
                         if (active.value && playbackKey == activePlaybackKey && liveGeneration == livePlaybackGeneration && key == currentInitialPositionRequestKey()) {
                             initialSeekApplied = handled
@@ -274,7 +275,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                         }
                         // Engine failover is decided here, driven by its own player setting;
                         // the engine's own decoder/MIME retries have already been tried.
-                        if (message != null && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
+                        if (message != null && !playingSavedPlaylistDocument && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
                             return@PlatformPlayerSurface
                         }
                         errorMessage = message
@@ -492,7 +493,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
             } else {
                 null
             },
-            onSwitchEngineClick = if (playerController?.playbackEngine != null) {
+            onSwitchEngineClick = if (playerController?.playbackEngine != null && !playingSavedPlaylistDocument) {
                 { showSwitchEngineConfirm = true }
             } else {
                 null
