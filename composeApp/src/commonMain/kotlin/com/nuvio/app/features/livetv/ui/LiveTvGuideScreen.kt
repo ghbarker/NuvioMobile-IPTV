@@ -1,5 +1,7 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.record.matchesGuideAiring
+import com.nuvio.app.features.livetv.record.optionalGuideDetails
 import com.nuvio.app.features.livetv.model.descriptionText
 import com.nuvio.app.features.livetv.model.subTitle
 import androidx.compose.animation.AnimatedVisibility
@@ -571,7 +573,7 @@ internal fun ProgramDetailsDialog(
     onOpenTitle: ((type: String, tmdbId: Int, title: String) -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
-    var full by remember { mutableStateOf(program) }
+    var full by remember(channel.key, program) { mutableStateOf(program) }
     val findable = onOpenTitle != null && NuvioTitleFind.canLookUp(program, channel.name)
     var finding by remember(program) { mutableStateOf(false) }
     var pickFor by remember(program) { mutableStateOf<EpgProgram?>(null) }
@@ -579,8 +581,9 @@ internal fun ProgramDetailsDialog(
     fun openPick(c: com.nuvio.app.features.livetv.data.TitleMatchFixes.Candidate) {
         onOpenTitle?.invoke(if (c.series) "series" else "movie", c.tmdbId, c.name)
     }
-    LaunchedEffect(program) {
-        LiveTvRepository.programDetails(channel.key, program.startMs)?.let { full = it }
+    LaunchedEffect(channel.key, program) {
+        optionalGuideDetails { LiveTvRepository.programDetails(channel.key, program.startMs) }
+            ?.takeIf { program.matchesGuideAiring(it) }?.let { full = it }
     }
     val schedules by remember { LiveTvRecordingScheduler.start(); LiveTvRecordingScheduler.schedules }.collectAsStateWithLifecycle()
     val scheduled = remember(schedules, program) { LiveTvRecordingScheduler.isScheduled(channel.key, program) }

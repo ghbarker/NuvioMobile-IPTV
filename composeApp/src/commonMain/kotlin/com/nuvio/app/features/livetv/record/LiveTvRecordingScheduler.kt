@@ -57,6 +57,7 @@ internal object LiveTvRecordingScheduler {
     val repeats: StateFlow<List<RepeatRule>> = _repeats.asStateFlow()
     /** One pass over the series rules at a time (two at once could each set the same episode). */
     private val expandLock = Mutex()
+    private val immediateStartLock = Mutex()
 
     private var started = false
     private var loadedOnce = false
@@ -106,7 +107,7 @@ internal object LiveTvRecordingScheduler {
 
     /** A recording set by hand: [title] from [startMs] to [stopMs] on [channel]. Recorded like a show from the guide. */
     fun addManual(channel: LiveChannel, title: String, startMs: Long, stopMs: Long, days: Set<Int> = emptySet()): String {
-        if (days.isEmpty()) return add(channel, EpgProgram(startMs = startMs, stopMs = stopMs, title = title.ifBlank { channel.name }))
+        if (days.isEmpty()) return add(channel, EpgProgram(startMs = startMs, stopMs = stopMs, title = title.ifBlank { channel.name }), guideStartMs = null)
         val at = com.nuvio.app.features.livetv.data.CivilTime.at(startMs, com.nuvio.app.features.livetv.data.LiveTvTimeZones.SYSTEM)
         val rule = RepeatRule(
             id = "m${LiveTvClock.nowMs()}",
@@ -170,19 +171,25 @@ internal object LiveTvRecordingScheduler {
      * Sets [program] on [channel] to record. A show on now on a channel without catch-up starts
      * recording straight away. Returns a message to show.
      */
-    fun add(channel: LiveChannel, program: EpgProgram, seriesId: String? = null): String {
-        val (s, message) = prepare(channel, program, seriesId)
+    fun add(channel: LiveChannel, program: EpgProgram, seriesId: String? = null, guideStartMs: Long? = program.startMs): String {
+        val (s, message) = prepare(channel, program, seriesId, guideStartMs)
         if (s != null) scope.launch { insert(s) }
         return message
     }
 
+    private suspend fun resolveGuide(s: RecordingSchedule): RecordingSchedule =
+        optionalGuideDetails {
+            val offset = if (s.guideStartMs == null) LiveTvPreferences.currentSettings().epgOffsetMinutes * 60_000L else 0L
+            s.withGuideDetails(offset, LiveTvRepository::programDetails)
+        } ?: s
+
     /** Puts a show in the list (unless that airing is already in it) and sets its alarm. */
-    private suspend fun insert(s: RecordingSchedule) {
+    private suspend fun insert(schedule: RecordingSchedule) {
+        val s = resolveGuide(schedule)
         mutex.withLock {
-            if (_schedules.value.none { it.channel.key == s.channel.key && it.startMs == s.startMs }) {
-                _schedules.value = (_schedules.value + s).sortedBy { it.startMs }
-                save()
-            }
+            if (_schedules.value.any { it.channel.key == s.channel.key && it.startMs == s.startMs }) return
+            _schedules.value = (_schedules.value + s).sortedBy { it.startMs }
+            save()
         }
         arm(s)
     }
@@ -191,21 +198,13 @@ internal object LiveTvRecordingScheduler {
      * The recording for [program] and the message to show; null when it records straight away
      * (on now, no catch-up) or can't record.
      */
-    private fun prepare(channel: LiveChannel, program: EpgProgram, seriesId: String?): Pair<RecordingSchedule?, String> {
+    private fun prepare(channel: LiveChannel, program: EpgProgram, seriesId: String?, guideStartMs: Long? = program.startMs): Pair<RecordingSchedule?, String> {
         val now = LiveTvClock.nowMs()
         val (preMs, postMs) = paddingFor(seriesId)
         val useCatchup = channel.catchup != null && channel.catchup.days > 0 &&
             (channel.stalker == null || (!program.stalkerProgramId.isNullOrBlank() && program.stalkerSourceIdentity != null &&
                 program.stalkerSourceIdentity == channel.stalker.sourceIdentity))
         val title = RecordingRules.cleanTitle(program.title)
-        if (!useCatchup && now >= program.startMs && now < program.stopMs) {
-            if (LiveTvRecorder.activeFor(channel.key) == null) {
-                LiveTvRecorder.start(channel, channel.url, title, program.episode, program.description,
-                    program.startMs, program.stopMs, RecordingRules.recordNowStop(program.stopMs, postMs),
-                    onFinished = { seriesId?.let { keepOnlyNewest(it) } }, seriesId = seriesId)
-            }
-            return null to "Recording \"$title\" now"
-        }
         if (program.stopMs <= now && !useCatchup) return null to "That show has already been on"
         val s = RecordingSchedule(
             id = "s${now}_${program.startMs.hashCode()}",
@@ -222,7 +221,20 @@ internal object LiveTvRecordingScheduler {
             stalkerProgramId = program.stalkerProgramId,
             stalkerSourceIdentity = program.stalkerSourceIdentity,
             isNew = RecordingRules.isNewTitle(program.title),
+            guideStartMs = guideStartMs ?: 0L,
         )
+        if (!useCatchup && now >= program.startMs) {
+            scope.launch {
+                immediateStartLock.withLock {
+                    if (LiveTvRecorder.activeFor(channel.key) != null) return@withLock
+                    val full = resolveGuide(s)
+                    LiveTvRecorder.start(channel, channel.url, title, full.episode, full.description,
+                        program.startMs, program.stopMs, RecordingRules.recordNowStop(program.stopMs, postMs),
+                        onFinished = { seriesId?.let { keepOnlyNewest(it) } }, seriesId = seriesId)
+                }
+            }
+            return null to "Recording \"$title\" now"
+        }
         val clash = RecordingRules.clashWith(s, _schedules.value)
         val whenText = com.nuvio.app.core.format.formatLocalDateTime(program.startMs)
         return s to when {
@@ -417,7 +429,7 @@ internal object LiveTvRecordingScheduler {
                 if (_schedules.value.any { it.channel.key == rule.channel.key && it.startMs == start }) continue
                 if (LiveTvRecorder.recordings.value.any { it.channelKey == rule.channel.key && it.programStartMs == start }) continue
                 val program = EpgProgram(startMs = start, stopMs = start + rule.lengthMin * 60_000L, title = rule.title)
-                prepare(channel, program, rule.id).first?.let { insert(it) }
+                prepare(channel, program, rule.id, guideStartMs = null).first?.let { insert(it) }
             }
         }
     }
@@ -456,7 +468,9 @@ internal object LiveTvRecordingScheduler {
     fun fire(id: String) {
         scope.launch {
             if (!loadedOnce) load()
-            val s = _schedules.value.firstOrNull { it.id == id } ?: run { LiveTvRecorder.stopServiceIfIdle(); return@launch }
+            val pending = _schedules.value.firstOrNull { it.id == id } ?: run { LiveTvRecorder.stopServiceIfIdle(); return@launch }
+            val s = resolveGuide(pending)
+            if (_schedules.value.none { it == pending }) return@launch
             val now = LiveTvClock.nowMs()
             com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Scheduled recording \"${s.title}\" on ${s.channel.name} is due" + (if (s.useCatchup) " (saved from catch-up)" else "") +
                 (if (now > s.startMs - s.pre + 2 * 60_000L && now < s.stopMs) ", ${(now - (s.startMs - s.pre)) / 60_000} min late" else ""))
