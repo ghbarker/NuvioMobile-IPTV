@@ -406,7 +406,11 @@ internal fun SportsFollowingTab(follows: SportsFollows, settings: SportsSettings
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary)
                     IconButton(onClick = { repo.removeExcludedGuideTitle(title) }) {
-                        Icon(Icons.Filled.Close, contentDescription = stringResource(Res.string.livetv_sports_remove_excluded_title, title))
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(Res.string.livetv_sports_remove_excluded_title, title),
+                            tint = tokens.colors.textPrimary,
+                        )
                     }
                 }
             }
