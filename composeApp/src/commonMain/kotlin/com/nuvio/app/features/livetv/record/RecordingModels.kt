@@ -174,6 +174,8 @@ data class RecordingSchedule(
     val stalkerSourceIdentity: String? = null,
     /** The guide marked it as new (null: not known, set before this was saved). */
     val isNew: Boolean? = null,
+    /** Exact guide database time. Zero is a custom time slot, null is an older schedule. */
+    val guideStartMs: Long? = null,
 ) {
     val pre: Long get() = if (preMs >= 0) preMs else RecordingRules.PRE_MS
     val post: Long get() = if (postMs >= 0) postMs else RecordingRules.POST_MS
@@ -187,6 +189,7 @@ data class RecordingSchedule(
         stalkerProgramId?.let { put("stalkerProgramId", it) }
         stalkerSourceIdentity?.let { put("stalkerSourceIdentity", it) }
         isNew?.let { put("isNew", it) }
+        guideStartMs?.let { put("guideStartMs", it) }
     }
 
     companion object {
@@ -207,6 +210,7 @@ data class RecordingSchedule(
             stalkerProgramId = o.optString("stalkerProgramId").ifBlank { null },
             stalkerSourceIdentity = o.optString("stalkerSourceIdentity").ifBlank { null },
             isNew = if (o.containsKey("isNew")) o.optBoolean("isNew") else null,
+            guideStartMs = if (o.containsKey("guideStartMs")) o.optLong("guideStartMs") else null,
         )
     }
 }

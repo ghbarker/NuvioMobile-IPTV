@@ -1,6 +1,12 @@
 package com.nuvio.app.features.livetv
 
+import com.nuvio.app.features.livetv.calendar.CalendarGuideHit
 import com.nuvio.app.features.livetv.model.EpgProgram
+import com.nuvio.app.features.livetv.model.SUB_TITLE_MARK
+import com.nuvio.app.features.livetv.model.guideDescriptionText
+import com.nuvio.app.features.livetv.record.optionalGuideDetails
+import com.nuvio.app.features.livetv.record.withGuideDetails
+import kotlinx.coroutines.test.runTest
 import com.nuvio.app.features.livetv.record.ChannelSnapshot
 import com.nuvio.app.features.livetv.record.LiveTvRecording
 import com.nuvio.app.features.livetv.record.RecordingRules
@@ -9,6 +15,7 @@ import com.nuvio.app.features.livetv.record.RecordingStatus
 import com.nuvio.app.features.livetv.record.SeriesRule
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -102,6 +109,73 @@ class RecordingRulesTest {
         assertEquals("x:abc123", RecordingRules.episodeKey("ABC-123"))
         assertNull(RecordingRules.episodeKey(null))
         assertNull(RecordingRules.episodeKey("  "))
+    }
+
+    @Test
+    fun calendarRecordingRetainsTheAiringSynopsisAfterTheGuideExpires() = runTest {
+        val guide = EpgProgram(t0, t0 + 60 * min, "Show", episode = "S1E2",
+            description = "${SUB_TITLE_MARK}The guest\nAn old letter arrives.")
+        val displayed = EpgProgram(t0 + min, guide.stopMs + min, "Show")
+        val hit = CalendarGuideHit("pl|1|A", "A", null, displayed, guideStartMs = guide.startMs)
+        val queued = schedule("a", hit.startMs, hit.stopMs).copy(title = hit.program.title, guideStartMs = hit.guideStartMs)
+        val hydrated = RecordingSchedule.fromJson(queued.toJson()).withGuideDetails(5 * min) { channelKey, guideStart ->
+            assertEquals(hit.channelKey, channelKey)
+            assertEquals(t0, guideStart)
+            guide
+        }
+        assertEquals(displayed.startMs, hydrated.startMs)
+        assertEquals(displayed.stopMs, hydrated.stopMs)
+        val saved = RecordingSchedule.fromJson(hydrated.toJson()).withGuideDetails(0) { _, _ -> error("Guide expired") }
+        val recording = LiveTvRecording(id = "r", channelKey = hit.channelKey, channelName = hit.channelName,
+            channelLogo = null, title = saved.title, episode = saved.episode, description = saved.description,
+            startedAtMs = t0, stopAtMs = hit.stopMs, dir = "/shows")
+        val reopened = assertNotNull(LiveTvRecording.fromJson(recording.toJson(), recording.dir))
+        assertEquals("S1E2", reopened.episode)
+        assertEquals("An old letter arrives.", guideDescriptionText(reopened.description))
+    }
+
+    @Test
+    fun aReplacementAiringCannotSupplyTheWrongEpisodeDescription() = runTest {
+        val light = schedule("a", t0, t0 + min).copy(title = "Show", episode = "S2E1", guideStartMs = t0)
+        val full = EpgProgram(t0, t0 + min, "NEW: Show", episode = "S02E01", description = "Opening episode")
+        assertEquals("Opening episode", light.withGuideDetails(0) { _, _ -> full }.description)
+        assertEquals(light, light.withGuideDetails(0) { _, _ -> null })
+        for (other in listOf(full.copy(startMs = t0 + min), full.copy(stopMs = t0 + 2 * min),
+            full.copy(title = "Another show"), full.copy(episode = "S2E2"), full.copy(stalkerSourceIdentity = "replacement"))) {
+            assertEquals(light, light.withGuideDetails(0) { _, _ -> other })
+        }
+        val archive = light.copy(stalkerProgramId = "42")
+        assertEquals(archive, archive.withGuideDetails(0) { _, _ -> full.copy(stalkerProgramId = "43") })
+        val named = light.copy(description = "${SUB_TITLE_MARK}Pilot")
+        assertEquals(named, named.withGuideDetails(0) { _, _ -> full.copy(description = "${SUB_TITLE_MARK}Finale\nDifferent episode") })
+    }
+
+    @Test
+    fun legacySchedulesRequireOneExactGuideAiringAndCustomTimeSlotsSkipTheGuide() = runTest {
+        val legacy = schedule("a", t0, t0 + 30 * min)
+        val reloaded = RecordingSchedule.fromJson(legacy.toJson())
+        val full = EpgProgram(t0, t0 + 30 * min, legacy.title, description = "Original synopsis")
+        assertEquals(full.description, reloaded.withGuideDetails(min) { _, start -> full.takeIf { start == t0 } }.description)
+        assertNull(reloaded.withGuideDetails(min) { _, start ->
+            full.copy(startMs = start, stopMs = start + 30 * min)
+        }.description)
+        val manual = legacy.copy(guideStartMs = 0L)
+        assertEquals(manual, RecordingSchedule.fromJson(manual.toJson()).withGuideDetails(min) { _, _ -> error("Manual slot") })
+    }
+
+    @Test
+    fun optionalMetadataFailureAllowsRecordingAndPreservesCancellation() {
+        assertNull(optionalGuideDetails<String> { throw IllegalStateException("Guide unavailable") })
+        assertFailsWith<kotlinx.coroutines.CancellationException> {
+            optionalGuideDetails<String> { throw kotlinx.coroutines.CancellationException() }
+        }
+    }
+
+    @Test
+    fun aGuideSubtitleAloneIsNotAnEpisodeSynopsis() {
+        assertNull(guideDescriptionText("${SUB_TITLE_MARK}The guest"))
+        assertNull(guideDescriptionText(null))
+        assertEquals("Plain description", guideDescriptionText("Plain description"))
     }
 
     @Test

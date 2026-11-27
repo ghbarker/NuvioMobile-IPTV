@@ -20,9 +20,8 @@ internal data class CalendarGuideHit(
     val channelKey: String,
     val channelName: String,
     val channelLogo: String?,
-    val startMs: Long,
-    val stopMs: Long,
-    val title: String,
+    val program: EpgProgram,
+    val guideStartMs: Long? = null,
     val playlist: String? = null,
     val catchup: Boolean = false,
     val favorite: Boolean = false,
@@ -31,7 +30,10 @@ internal data class CalendarGuideHit(
     val confirmed: Boolean = false,
     /** The channel you told the Calendar to use for this show. */
     val mine: Boolean = false,
-)
+) {
+    val startMs get() = program.startMs
+    val stopMs get() = program.stopMs
+}
 
 /**
  * Finds which of your Live TV channels are showing each upcoming Calendar episode, by searching
@@ -82,10 +84,11 @@ internal object CalendarGuide {
             val options = rows.mapNotNull { (key, p0) ->
                 val ch = byKey[key] ?: return@mapNotNull null
                 if (!sameShow(p0.title, e.title)) return@mapNotNull null
-                val p = if (shift == 0L) p0 else p0.copy(startMs = p0.startMs + shift, stopMs = p0.stopMs + shift)
-                val off = p.startMs - air
+                val off = p0.startMs + shift - air
                 if (off < -75 * MIN || off > 200 * MIN) return@mapNotNull null
                 val guideEp = if (looked++ < 60) runCatching { EpgStore.program(key, p0.startMs)?.episode }.getOrNull() else null
+                val p = EpgProgram(p0.startMs + shift, p0.stopMs + shift, p0.title,
+                    description = p0.description, episode = guideEp)
                 val sameEp = sameEpisode(guideEp, e.season, e.episode, lastEp)
                 if (sameEp == false) return@mapNotNull null
                 val chName = LiveTvRepository.normalize(ch.name)
@@ -97,7 +100,7 @@ internal object CalendarGuide {
                 if (hd.containsMatchIn(ch.name)) score += 5
                 score -= (kotlin.math.abs(off) / MIN).toInt().coerceAtMost(75)
                 score to CalendarGuideHit(
-                    ch.key, ch.name, ch.logo, p.startMs, p.stopMs, p.title,
+                    ch.key, ch.name, ch.logo, p, guideStartMs = p0.startMs,
                     playlist = ch.sourceName, catchup = ch.catchup != null, favorite = key in favorites,
                     group = ch.group.ifBlank { null }, confirmed = sameEp == true,
                 )
@@ -107,7 +110,7 @@ internal object CalendarGuide {
             val mine = mineCh?.let { ch ->
                 val own = options.firstOrNull { it.channelKey == ch.key }
                 own?.copy(mine = true) ?: CalendarGuideHit(
-                    ch.key, ch.name, ch.logo, air, air + (e.runtimeMin ?: 60) * MIN, e.title,
+                    ch.key, ch.name, ch.logo, EpgProgram(air, air + (e.runtimeMin ?: 60) * MIN, e.title),
                     playlist = ch.sourceName, catchup = ch.catchup != null, favorite = ch.key in favorites,
                     group = ch.group.ifBlank { null }, mine = true,
                 )
@@ -123,12 +126,9 @@ internal object CalendarGuide {
     private fun channelOf(hit: CalendarGuideHit): LiveChannel? =
         LiveTvRepository.channels.value.firstOrNull { it.key == hit.channelKey }
 
-    private fun programOf(e: CalendarEntry, hit: CalendarGuideHit) =
-        EpgProgram(startMs = hit.startMs, stopMs = hit.stopMs, title = hit.title.ifBlank { e.title })
-
     fun isRecording(hit: CalendarGuideHit): Boolean {
         val ch = channelOf(hit) ?: return false
-        return LiveTvRecordingScheduler.isScheduled(ch.key, EpgProgram(startMs = hit.startMs, stopMs = hit.stopMs, title = hit.title))
+        return LiveTvRecordingScheduler.isScheduled(ch.key, hit.program)
     }
 
     fun isReminder(hit: CalendarGuideHit): Boolean = LiveTvReminders.isSet(hit.channelKey, hit.startMs)
@@ -143,7 +143,7 @@ internal object CalendarGuide {
         // Moving to another channel: the same episode isn't recorded twice.
         hitsOf(e).filter { it.channelKey != hit.channelKey && isRecording(it) }
             .forEach { LiveTvRecordingScheduler.cancel(it.channelKey, it.startMs) }
-        return LiveTvRecordingScheduler.add(ch, programOf(e, hit))
+        return LiveTvRecordingScheduler.add(ch, hit.program, guideStartMs = hit.guideStartMs)
     }
 
     /** Sets (or cancels) a reminder. Returns a short message. */

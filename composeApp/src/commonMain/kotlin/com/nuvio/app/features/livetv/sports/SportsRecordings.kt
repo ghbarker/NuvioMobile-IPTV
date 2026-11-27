@@ -56,7 +56,7 @@ internal object SportsRecordings {
             title = ev.title,
             description = listOfNotNull(league?.name, ev.subtitle).joinToString(" · ").ifBlank { null }
         )
-        return LiveTvRecordingScheduler.add(m.channel, program)
+        return LiveTvRecordingScheduler.add(m.channel, program, guideStartMs = null)
     }
 
     fun cancel(ev: SportsEvent) {
