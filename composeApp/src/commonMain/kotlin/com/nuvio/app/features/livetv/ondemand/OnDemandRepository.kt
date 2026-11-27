@@ -536,6 +536,8 @@ internal object OnDemandRepository {
         /** A fresh portal link is requested only when this source is actually selected. */
         val stalkerSourceId: String? = null,
         val stalkerStream: StalkerStreamRef? = null,
+        val downloadItemUid: String? = null,
+        val downloadEpisodeId: String? = null,
     )
 
     /**
@@ -598,7 +600,8 @@ internal object OnDemandRepository {
                     val ext = if (pl.isStalker) item.ext.orEmpty() else item.ext ?: "mp4"
                     out += OnDemandSource(pl.name + if (ext.isNotBlank()) " · ${ext.uppercase()}" else "", url, headers,
                         item.displayTitle, item.year, pl.name, ext, providerTitle = item.name,
-                        stalkerSourceId = pl.id.takeIf { pl.isStalker }, stalkerStream = item.stalker)
+                        stalkerSourceId = pl.id.takeIf { pl.isStalker }, stalkerStream = item.stalker,
+                        downloadItemUid = item.uid.takeUnless { pl.isStalker })
                 } else if (season != null && episode != null) {
                     val episodes = runCatching { info(item) }
                         .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()?.episodes.orEmpty()
@@ -610,6 +613,7 @@ internal object OnDemandRepository {
                         episodeTag = "S" + season.toString().padStart(2, '0') + "E" + episode.toString().padStart(2, '0'),
                         providerTitle = item.name,
                         stalkerSourceId = pl.id.takeIf { pl.isStalker }, stalkerStream = ep.stalker,
+                        downloadItemUid = item.uid.takeUnless { pl.isStalker }, downloadEpisodeId = ep.id,
                     )
                 }
             }

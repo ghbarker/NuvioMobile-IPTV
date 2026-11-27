@@ -72,6 +72,8 @@ import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.livetv.ondemand.OnDemandStreams
+import com.nuvio.app.features.livetv.ondemand.rememberPlaylistDownloadAction
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -165,6 +167,8 @@ fun StreamsScreen(
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     val downloadScope = rememberCoroutineScope()
+    val playlistDownload = rememberPlaylistDownloadAction(videoId, title, poster)
+    val playlistDownloadUnavailable = stringResource(Res.string.playlist_download_unavailable)
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     val episodeProgress = watchProgressUiState.progressForVideo(
         videoId = videoId,
@@ -343,7 +347,11 @@ fun StreamsScreen(
                 }
             },
             onDownload = { stream ->
-                if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
+                if (playlistDownload != null && OnDemandStreams.isOnDemandGroup(stream.addonId)) {
+                    val uid = stream.playlistDownloadUid
+                    if (uid == null) NuvioToastController.show(playlistDownloadUnavailable)
+                    else playlistDownload(uid, stream.playlistDownloadEpisodeId)
+                } else if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
                     downloadScope.launch {
                         val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                             stream = stream,

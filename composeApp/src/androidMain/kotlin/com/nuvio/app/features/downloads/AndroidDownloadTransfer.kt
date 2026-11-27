@@ -12,6 +12,8 @@ import kotlinx.coroutines.ensureActive
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 internal val downloadHttpClient = OkHttpClient.Builder()
     .connectTimeout(60, TimeUnit.SECONDS)
@@ -30,14 +32,33 @@ internal suspend fun transferAndroidDownload(
     client: OkHttpClient = downloadHttpClient,
     onHeaders: (totalBytes: Long?, validator: String?) -> Unit,
     onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
-): File = coroutineScope {
+): File {
+    require(File(item.fileName).name == item.fileName && item.fileName.isNotBlank())
+    check(directory.isDirectory || directory.mkdirs()) { "Cannot create downloads directory" }
+    val partial = File(directory, "${item.fileName}.part")
+    transferDownloadBytes(
+        item, partial.takeIf(File::isFile)?.length() ?: 0L, validator, client,
+        { offset -> FileOutputStream(partial, offset > 0L) }, onHeaders, onProgress,
+    )
+    return partial
+}
+
+internal suspend fun transferDownloadBytes(
+    item: DownloadItem,
+    existingBytes: Long,
+    validator: String?,
+    client: OkHttpClient,
+    openOutput: (offset: Long) -> FileOutputStream,
+    onHeaders: (totalBytes: Long?, validator: String?) -> Unit,
+    onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+): Long = coroutineScope {
     val activeCall = AtomicReference<Call?>()
     val transfer = async(Dispatchers.IO) {
         try {
-            require(File(item.fileName).name == item.fileName && item.fileName.isNotBlank())
-            check(directory.isDirectory || directory.mkdirs()) { "Cannot create downloads directory" }
-            val partial = File(directory, "${item.fileName}.part")
-            var offset = partial.takeIf(File::isFile)?.length() ?: 0L
+            val http: Call.Factory = if (item.folder != null) {
+                com.nuvio.vpn.android.VpnHttpClient.wrap(playlistDownloadClient(client, item))
+            } else client
+            var offset = if (item.folder != null && validator == null) 0L else existingBytes
             var restarted = false
 
             while (true) {
@@ -53,7 +74,7 @@ internal suspend fun transferAndroidDownload(
                         validator?.let { header("If-Range", it) }
                     }
                 }.build()
-                val call = client.newCall(request)
+                val call = http.newCall(request)
                 activeCall.set(call)
                 ensureActive()
                 call.execute().use { response ->
@@ -70,6 +91,7 @@ internal suspend fun transferAndroidDownload(
                     }
                     val startingBytes = if (resumed) offset else 0L
                     val body = response.body ?: throw IOException("Download response is empty")
+                    if (item.folder != null) validatePlaylistResponse(response, startingBytes)
                     val contentLength = body.contentLength().takeIf { it >= 0L }
                     val totalBytes = range?.second ?: contentLength?.let { startingBytes + it }
                     val responseValidator = response.header("ETag")?.takeUnless { it.startsWith("W/") }
@@ -78,7 +100,7 @@ internal suspend fun transferAndroidDownload(
                     var downloaded = startingBytes
                     onProgress(downloaded, totalBytes)
                     body.byteStream().use { input ->
-                        FileOutputStream(partial, resumed && offset > 0L).use { output ->
+                        openOutput(startingBytes).use { output ->
                             val buffer = ByteArray(64 * 1024)
                             while (true) {
                                 ensureActive()
@@ -95,11 +117,11 @@ internal suspend fun transferAndroidDownload(
                     if (totalBytes != null && downloaded != totalBytes) {
                         throw IOException("Download ended before all bytes were received")
                     }
-                    return@async partial
+                    return@async downloaded
                 }
             }
             @Suppress("UNREACHABLE_CODE")
-            partial
+            0L
         } catch (error: Exception) {
             // Closing a cancelled HTTP call throws IOException from its blocking read.
             ensureActive()
@@ -120,4 +142,37 @@ internal fun parseDownloadContentRange(value: String): Pair<Long, Long?>? {
     val total = match.groupValues[3].toLongOrNull()
     if (end < start || (total != null && end >= total)) return null
     return start to total
+}
+
+// Playlist credentials may be carried in custom headers, which OkHttp normally keeps on redirects.
+private fun playlistDownloadClient(client: OkHttpClient, item: DownloadItem): OkHttpClient {
+    val origin = item.sourceUrl.toHttpUrl()
+    return client.newBuilder().addNetworkInterceptor { chain ->
+        val request = chain.request()
+        val url = request.url
+        if (origin.isHttps && !url.isHttps) throw DownloadFormatException()
+        val sameOrigin = origin.scheme == url.scheme && origin.host == url.host && origin.port == url.port
+        val forwarded = if (sameOrigin) request else request.newBuilder().apply {
+            item.sourceHeaders.keys.forEach { removeHeader(it) }
+        }.build()
+        chain.proceed(forwarded)
+    }.build()
+}
+
+private fun validatePlaylistResponse(response: Response, offset: Long) {
+    val path = response.request.url.encodedPath.lowercase()
+    val type = response.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+    if (listOf(".m3u", ".m3u8", ".mpd", ".torrent").any(path::endsWith) ||
+        type.startsWith("text/") || "mpegurl" in type || "dash+xml" in type ||
+        "json" in type || "xml" in type || "bittorrent" in type || type.startsWith("image/")) {
+        throw DownloadFormatException()
+    }
+    if (offset == 0L) {
+        val prefix = response.peekBody(512).bytes()
+        val text = prefix.decodeToString().trimStart('\uFEFF', ' ', '\r', '\n', '\t')
+        if (prefix.isEmpty() || text.startsWith("#EXT", true) || text.startsWith("<") ||
+            text.startsWith("{") || text.startsWith("[") || prefix.all { it in 9..13 || it in 32..126 }) {
+            throw DownloadFormatException()
+        }
+    }
 }

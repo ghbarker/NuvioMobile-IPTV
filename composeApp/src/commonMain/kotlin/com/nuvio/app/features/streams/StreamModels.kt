@@ -40,6 +40,9 @@ data class StreamItem(
     val stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null,
     /** True when [url] was produced by Nuvio's own debrid resolver, not returned by the add-on. */
     val debridResolved: Boolean = false,
+    /** Catalog identity for downloading this specific provider copy from the stream selector. */
+    val playlistDownloadUid: String? = null,
+    val playlistDownloadEpisodeId: String? = null,
 ) {
     val streamLabel: String
         get() = name?.takeIf { it.isNotBlank() } ?: "Stream"

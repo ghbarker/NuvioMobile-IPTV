@@ -224,6 +224,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+import nuvio.composeapp.generated.resources.playlist_download_reconnect
 import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -684,10 +685,10 @@ internal fun MainAppContent(
             NetworkCondition.ServersUnreachable,
             -> {
                 offlineLaunchRouteHandled = true
-                val hasPlayableDownload = completedDownloads.any {
-                    DownloadsRepository.playableLocalFileUri(it) != null
+                val hasOfflineLibrary = completedDownloads.any {
+                    it.folder != null || DownloadsRepository.playableLocalFileUri(it) != null
                 }
-                if (hasPlayableDownload) {
+                if (hasOfflineLibrary) {
                     activateTab(AppScreenTab.Library)
                     navController.navigate(DownloadsRoute(downloadsTitle)) {
                         launchSingleTop = true
@@ -900,7 +901,13 @@ internal fun MainAppContent(
         }
 
         fun openDownloadedItem(item: DownloadItem) {
-            val sourceUrl = DownloadsRepository.playableLocalFileUri(item) ?: return
+            val sourceUrl = DownloadsRepository.playableLocalFileUri(item)
+            if (sourceUrl == null) {
+                item.folder?.let { folder ->
+                    coroutineScope.launch { NuvioToastController.show(getString(Res.string.playlist_download_reconnect, folder.label)) }
+                }
+                return
+            }
             val resumeEntry = item.videoId
                 .takeIf { it.isNotBlank() }
                 ?.let(WatchProgressRepository::progressForVideo)
