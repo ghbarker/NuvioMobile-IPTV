@@ -9,6 +9,10 @@ import com.nuvio.app.features.livetv.data.ServerZones
 import com.nuvio.app.features.livetv.data.XtreamClient
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.LiveTvSettings
+import com.nuvio.app.features.livetv.model.LiveUserState
+import com.nuvio.app.features.livetv.model.BackupOrder
+import com.nuvio.app.features.livetv.parental.ParentalControls
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.player.PlayerLaunch
@@ -21,6 +25,7 @@ import com.nuvio.stalker.StalkerError
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
@@ -242,11 +247,13 @@ internal object LiveTvPlayback {
     /** Only actual continuous channels: replays, saved recordings and highlight clips end normally. */
     fun isContinuousLive(providerAddonId: String?, url: String): Boolean = owns(providerAddonId) && synchronized(lock) {
         val channel = playing[url]
-        channel != null && url !in catchups && url !in recordings &&
-            channel.sourceId != com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID &&
-            // Add-on channels also represent completed-game replays without catch-up metadata.
-            channel.sourceId != com.nuvio.app.features.livetv.sports.SportsAddonSource.SOURCE_ID
+        channel != null && url !in catchups && url !in recordings && isLiveChannelSource(channel)
     }
+
+    // Add-on channels also represent completed-game replays without catch-up metadata.
+    private fun isLiveChannelSource(channel: LiveChannel): Boolean =
+        channel.sourceId != com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID &&
+            channel.sourceId != com.nuvio.app.features.livetv.sports.SportsAddonSource.SOURCE_ID
 
     // ---------------------------------------------------------------- catch-up
 
@@ -444,6 +451,51 @@ internal object LiveTvPlayback {
     private fun prefsRecordWatched(channel: LiveChannel) = LiveTvPreferences.recordWatched(channel.key,
         addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
 
+    /** The current feed still works. Resolve a distinct same-channel backup before handing it over. */
+    suspend fun backupForStalledChannel(sourceUrl: String, sourceKey: String, stillCurrent: () -> Boolean): LiveFallback? {
+        val settings = LiveTvPreferences.currentSettings()
+        fun eligible(): Boolean = stillCurrent() && LiveTvPreferences.currentSettings().let {
+            it.autoBackupChannel && it.adaptiveLiveBufferEnabled
+        } && currentKey == sourceKey && isContinuousLive(PROVIDER_ID, sourceUrl)
+        if (!eligible()) return null
+        val from = synchronized(lock) { playing[sourceUrl]?.takeIf { it.key == sourceKey } } ?: return null
+        val tried = synchronized(lock) { backupTried.toSet() }
+        val copies = copiesAmong(from, tried).filter(::isLiveChannelSource).toList()
+        val playlists = LiveTvPreferences.currentPlaylists().associate { it.id to it.name }
+        val ordered = BackupOrder.organize(copies, settings, playlists) { it }.flatMap { it.channels }
+        val attempted = HashSet<String>()
+        for (candidate in ordered) {
+            if (!eligible()) return null
+            // Include failed resolutions and aliases when continuing through the existing backup list.
+            if (!attempted.add(candidate.key) || synchronized(lock) { candidate.key in backupTried }) continue
+            val req = try { requestFor(candidate) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { continue }
+            if (!eligible()) return null
+            // A portal can take time to resolve. Respect visibility or PIN changes made meanwhile.
+            if (!backupVisible(candidate)) continue
+            val accepted = synchronized(lock) {
+                if (currentKey != sourceKey || playing[sourceUrl]?.key != sourceKey || req.url in playing) false
+                else {
+                    backupTried += from.key
+                    backupTried += attempted
+                    // Some playlists give several channel IDs the exact same underlying stream.
+                    // Subsequent hard-error retries should not circle back through those aliases.
+                    backupTried += copies.filter { it.stalker == null && (it.url in playing || it.url == req.url) }.map { it.key }
+                    playing[req.url] = candidate
+                    currentKey = candidate.key
+                    true
+                }
+            }
+            if (accepted) {
+                LiveTvPreferences.recordWatched(candidate.key, addToRecent = false)
+                return LiveFallback(candidate, req, switchedFrom = from)
+            }
+        }
+        if (eligible()) synchronized(lock) { backupTried += attempted }
+        return null
+    }
+
     private fun backupFor(failed: LiveChannel): LiveChannel? {
         if (!LiveTvPreferences.currentSettings().autoBackupChannel) return null
         synchronized(lock) { backupTried += failed.key }
@@ -474,14 +526,22 @@ internal object LiveTvPlayback {
         val name = backupName(failed.name)
         if (name.length < 2) return emptySequence()
         val hidden = LiveTvPreferences.currentUserState()
+        val settings = LiveTvPreferences.currentSettings()
         return index[name].orEmpty().asSequence()
             .filter { it.key !in tried && it.key != failed.key }
-            .filter { it.key !in hidden.hiddenChannels && it.groupId !in hidden.hiddenGroups && !hidden.hidesPlaylistOf(it) }
+            .filter { backupVisible(it, hidden, settings) }
             // Local stations: "FOX (WNYW)" isn't a backup for "FOX (KTTV)".
             .filter { c -> val a = stationNote(failed.name); val b = stationNote(c.name); a == null || b == null || a == b }
             // Other playlists first.
             .sortedBy { if (it.sourceId != failed.sourceId) 0 else 1 }
     }
+
+    private fun backupVisible(
+        channel: LiveChannel,
+        user: LiveUserState = LiveTvPreferences.currentUserState(),
+        settings: LiveTvSettings = LiveTvPreferences.currentSettings(),
+    ) = channel.key !in user.hiddenChannels && channel.groupId !in user.hiddenGroups && !user.hidesPlaylistOf(channel) &&
+        !ParentalControls.isLocked(channel.groupId, "${channel.group} ${channel.name}", settings, user.lockedGroups)
 
     private fun gameFailoverFor(failed: LiveChannel): LiveChannel? {
         if (!LiveTvPreferences.currentSettings().autoBackupChannel) return null

@@ -287,7 +287,7 @@ internal fun PlayerScreenRuntime.cycleResizeMode() {
 internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
     if (partyBlocksControl()) return
     val speeds = listOf(1f, 1.25f, 1.5f, 2f)
-    val current = playbackSnapshot.playbackSpeed
+    val current = playerController?.userPlaybackSpeed(playbackSnapshot.playbackSpeed) ?: playbackSnapshot.playbackSpeed
     val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
     partyRateNudge = null
     playerController?.setPlaybackSpeed(next)
@@ -303,7 +303,7 @@ internal fun PlayerScreenRuntime.activateHoldToSpeed() {
     if (speedBoostRestoreSpeed != null) return
 
     val targetSpeed = playerSettingsUiState.holdToSpeedValue
-    val currentSpeed = playbackSnapshot.playbackSpeed
+    val currentSpeed = controller.userPlaybackSpeed(playbackSnapshot.playbackSpeed)
     if (abs(currentSpeed - targetSpeed) < 0.01f) return
 
     isHoldToSpeedGestureActive = true

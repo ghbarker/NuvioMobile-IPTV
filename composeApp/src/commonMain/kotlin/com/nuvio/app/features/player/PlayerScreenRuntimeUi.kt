@@ -262,6 +262,13 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
                         handleLivePlaybackEnd(snapshot, playbackKey, liveGeneration)
+                        val owner = playerController
+                        owner?.takeAdaptiveLiveBackupRequest()?.let { stillNeeded ->
+                            tryAdaptiveLiveBackup {
+                                active.value && playbackKey == activePlaybackKey && liveGeneration == livePlaybackGeneration &&
+                                    playerController === owner && stillNeeded()
+                            }
+                        }
                     },
                     onError = { message ->
                         if (!active.value || playbackKey != activePlaybackKey || liveGeneration != livePlaybackGeneration) return@PlatformPlayerSurface

@@ -75,6 +75,30 @@ class LiveTvBackupTest {
     private fun JsonObject.value(key: String) = this[key]!!.jsonObject["v"]!!
 
     @Test
+    fun adaptiveLiveBufferIsOptInAndStaysOnThisDevice() {
+        var saved: Map<String, PrefValue> = emptyMap()
+        val phone = LiveTvPreferencesStore().apply {
+            installPersistence(load = { null }, save = { saved = it })
+        }
+        assertFalse(phone.currentSettings().adaptiveLiveBufferEnabled)
+        phone.updateSettings { it.copy(adaptiveLiveBufferEnabled = true) }
+
+        val reloaded = LiveTvPreferencesStore().apply {
+            installPersistence(load = { saved }, save = { saved = it })
+        }
+        assertTrue(reloaded.currentSettings().adaptiveLiveBufferEnabled)
+        assertFalse(LiveTvKeys.adaptiveLiveBuffer in reloaded.exportForSync())
+
+        val otherDevice = buildJsonObject {
+            put(LiveTvKeys.adaptiveLiveBuffer, entry("b", JsonPrimitive(false)))
+        }
+        reloaded.importFromSync(otherDevice)
+        assertTrue(reloaded.currentSettings().adaptiveLiveBufferEnabled)
+        reloaded.updateSettings { it.copy(adaptiveLiveBufferEnabled = false) }
+        assertEquals(PrefValue.Bool(false), saved[LiveTvKeys.adaptiveLiveBuffer])
+    }
+
+    @Test
     fun updateBannersDefaultToVisibleAndPersistAcrossReloads() {
         var saved: Map<String, PrefValue> = emptyMap()
         val store = LiveTvPreferencesStore().apply {

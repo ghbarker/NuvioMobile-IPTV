@@ -33,6 +33,7 @@ import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
+import com.nuvio.app.features.livetv.player.LiveFallback
 import com.nuvio.app.features.servers.ServerPlayback
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
@@ -128,6 +129,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         liveGestureFeedback = null
         renderedGestureFeedback = null
         lockedOverlayVisible = false
+        adaptiveBackupJob?.cancel()
+        adaptiveBackupJob = null
         credentialRefreshJob?.cancel()
         credentialRefreshJob = null
         credentialRefreshAttemptedSourceUrl = null
@@ -1076,6 +1079,7 @@ private fun PlayerScreenRuntime.retryOnDemandPortalAfterError(message: String?):
 }
 
 private fun PlayerScreenRuntime.retryLiveTvSourceAfterError(message: String?): Boolean {
+    adaptiveBackupJob?.cancel()
     if (credentialRefreshJob?.isActive == true) return true
     val failedUrl = activeSourceUrl
     val resumePosition = if (LiveTvPlayback.isPortalReplay(failedUrl)) playbackSnapshot.positionMs.coerceAtLeast(0) else 0L
@@ -1087,24 +1091,7 @@ private fun PlayerScreenRuntime.retryLiveTvSourceAfterError(message: String?): B
                 controlsVisible = !playerControlsLocked
                 return@launch
             }
-            errorMessage = null
-            fallback.switchedFrom?.let { from ->
-                NuvioToastController.show(getString(Res.string.livetv_switched_to_backup, from.name, fallback.channel.name))
-            }
-            activeSourceUrl = fallback.request.url
-            activeSourceAudioUrl = null
-            activeSourceHeaders = sanitizePlaybackHeaders(fallback.request.headers)
-            activeStalkerMediaPolicy = fallback.request.mediaPolicy
-            activeStreamType = fallback.request.streamType
-            activeStreamFilename = sourceFilenameFromUrl(fallback.request.url)
-            if (fallback.switchedFrom != null) {
-                activeStreamTitle = fallback.channel.name
-                activeProviderName = fallback.channel.sourceName
-                activeVideoId = fallback.channel.key
-            }
-            activeInitialPositionMs = resumePosition
-            activeInitialProgressFraction = null
-            controlsVisible = true
+            applyLiveFallback(fallback, resumePosition)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (_: Exception) {
             errorMessage = getString(Res.string.livetv_error_renew)
@@ -1112,6 +1099,41 @@ private fun PlayerScreenRuntime.retryLiveTvSourceAfterError(message: String?): B
         }
     }
     return true
+}
+
+/** Exhausting backups while the current feed is still playing must leave the viewer on that feed. */
+internal fun PlayerScreenRuntime.tryAdaptiveLiveBackup(stillNeeded: () -> Boolean) {
+    if (adaptiveBackupJob?.isActive == true) return
+    val fromUrl = activeSourceUrl
+    val fromKey = activeVideoId ?: return
+    fun current() = activeSourceUrl == fromUrl && activeVideoId == fromKey && shouldPlay && errorMessage == null &&
+        isContinuousLivePlayback && credentialRefreshJob?.isActive != true && stillNeeded()
+    if (!current()) return
+    adaptiveBackupJob = scope.launch {
+        val fallback = LiveTvPlayback.backupForStalledChannel(fromUrl, fromKey, ::current) ?: return@launch
+        applyLiveFallback(fallback, 0L)
+    }
+}
+
+private suspend fun PlayerScreenRuntime.applyLiveFallback(fallback: LiveFallback, resumePosition: Long) {
+    errorMessage = null
+    activeSourceUrl = fallback.request.url
+    activeSourceAudioUrl = null
+    activeSourceHeaders = sanitizePlaybackHeaders(fallback.request.headers)
+    activeStalkerMediaPolicy = fallback.request.mediaPolicy
+    activeStreamType = fallback.request.streamType
+    activeStreamFilename = sourceFilenameFromUrl(fallback.request.url)
+    activeInitialPositionMs = resumePosition
+    activeInitialProgressFraction = null
+    if (fallback.switchedFrom != null) {
+        activeStreamTitle = fallback.channel.name
+        activeProviderName = fallback.channel.sourceName
+        activeVideoId = fallback.channel.key
+    }
+    controlsVisible = true
+    fallback.switchedFrom?.let { from ->
+        NuvioToastController.show(getString(Res.string.livetv_switched_to_backup, from.name, fallback.channel.name))
+    }
 }
 
 private fun PlayerScreenRuntime.retryServerSourceAfterError(message: String?): Boolean {
