@@ -1484,6 +1484,8 @@ internal open class LiveTvPreferencesStore {
 
     // ---------- Sports ----------
 
+    fun sportsSettingsNow(): String? = _data.value.str(LiveTvKeys.sports)
+
     val sportsSettingsJson: Flow<String?> = _data.map { it.str(LiveTvKeys.sports) }.distinctUntilChanged()
 
     val sportsMineJson: Flow<String?> = combine(_data, _profile) { p, id -> profileView(p, id).str(LiveTvKeys.sportsMine) }

@@ -34,7 +34,11 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         /** False: only names, listed networks and your picks (quick channels before the guide search). */
         val readGuide: Boolean = true,
         /** Networks are only looked at for games starting before this (quick channels: games on now or soon; names are looked for in every game). */
-        val networksUntil: Long = Long.MAX_VALUE
+        val networksUntil: Long = Long.MAX_VALUE,
+        /** Restrict this search to one event. Peer tournaments still disambiguate generic listings. */
+        val onlyEventId: String? = null,
+        /** Keep these events' explicit searches effective during later automatic rounds. */
+        val requestedIds: Set<String> = emptySet()
     )
 
     class Result(val matches: Map<String, List<ChannelMatch>>, val summary: String)
@@ -122,21 +126,22 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         val events = input.events.mapNotNull { ev ->
             when {
                 ev.hasTime -> ev
-                !multiDay(ev) -> null
+                !multiDay(ev) -> ev.takeIf { ev.id == input.onlyEventId || ev.id in input.requestedIds }
                 // The feed's end date is the start of the last day (Sunday 00:00): the event runs through that day.
                 ev.endMs!! + 24 * HOUR < input.now -> null
                 ev.startMs >= input.now -> ev
                 else -> ev.copy(startMs = input.now)
             }?.also { if (!ev.hasTime || raceWeekend(ev)) noStart.add(ev.id) }
         }
-        val wanted = events.filter { ev ->
-            ev.state != GameState.OFF &&
-                ev.startMs in (input.now - 8 * HOUR)..(input.now + AHEAD_MS)
+        val selected = input.onlyEventId?.let { id -> events.firstOrNull { it.id == id && it.state != GameState.OFF } }
+        val wanted = if (input.onlyEventId != null) listOfNotNull(selected) else events.filter { ev ->
+            ev.state != GameState.OFF && (ev.id in input.requestedIds || ev.startMs in (input.now - 8 * HOUR)..(input.now + AHEAD_MS))
         }
+        val explicit = wanted.filter { it.id == input.onlyEventId || it.id in input.requestedIds }.mapTo(HashSet()) { it.id }
         // A channel you picked yourself shows straight away, however far off the game is (the
         // search above only looks a couple of days ahead).
         val picked = events.filter { ev ->
-            ev.state != GameState.OFF && ev.startMs >= input.now - 8 * HOUR &&
+            (input.onlyEventId == null || ev.id == input.onlyEventId) && ev.state != GameState.OFF && ev.startMs >= input.now - 8 * HOUR &&
                 (ev.id in input.settings.eventChannels || ev.leagueId in input.settings.leagueChannels ||
                     (input.settings.teamChannels.isNotEmpty() && ev.sides.any { teamChannelKey(ev.leagueId, it.team.id) in input.settings.teamChannels }))
         }
@@ -145,7 +150,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
 
         // Shows found in the guide already know their channels.
         val guideWanted = wanted.filter { it.source == EventSource.GUIDE }
-        guideWanted.forEach { ev ->
+        guideWanted.filterNot { it.id in explicit }.forEach { ev ->
             ev.guideHits.forEach { (key, p) -> add(ev.id, key, 100, "Guide: ${p.title}", p) }
         }
         // A race, show or fight night from a schedule (TheSportsDB's "Portugal Sprint Race") also
@@ -164,20 +169,25 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             }
         }
 
-        val teamEvents = wanted.filter { it.source != EventSource.GUIDE }
+        val teamEvents = wanted.filter { it.source != EventSource.GUIDE || it.id in explicit }
         // Fights found in the guide ("Boxing : Canelo Alvarez vs. Christian Mbilli") are also looked
         // for by channel name: their event channels ("Canelo v Mbilli") usually have no listings.
         val guideFights = wanted.filter { ev ->
-            ev.source == EventSource.GUIDE && SportsCatalog.league(ev.leagueId)?.sport == Sport.FIGHTING &&
+            ev.id !in explicit && ev.source == EventSource.GUIDE && SportsCatalog.league(ev.leagueId)?.sport == Sport.FIGHTING &&
                 SportsCatalog.fightSides(ev.title) != null
         }
-        val terms = (teamEvents + guideFights).associate { ev -> ev.id to termsFor(ev) }
+        val peers = if (selected != null && selected.id in noStart) events.filter { ev ->
+            ev.id in noStart && ev.state != GameState.OFF &&
+                ev.startMs <= (selected.endMs ?: selected.startMs) + 24 * HOUR &&
+                selected.startMs <= (ev.endMs ?: ev.startMs) + 24 * HOUR
+        } else wanted
+        val multiEvents = peers.filter { it.id in noStart && it.source != EventSource.GUIDE }
+        val terms = (teamEvents + guideFights + multiEvents).distinctBy { it.id }.associate { ev -> ev.id to termsFor(ev) }
 
         // Tournaments and race weekends running at the same time (several tennis events, two golf
         // tours): a channel or show that just says "Tennis" or "Golf" can't tell them apart.
         // Each one's own words ("basel", "bermuda") pick it out; the competition's words only
         // count when no other event running now uses them.
-        val multiEvents = teamEvents.filter { it.id in noStart }
         val specific: Map<String, Set<String>> = multiEvents.associate { ev ->
             val league = terms[ev.id]?.leagueWords.orEmpty().flatMap { it.split(' ') }.toSet()
             ev.id to norm(ev.title).trim().split(' ')
@@ -216,20 +226,29 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         // ---- 1. The guide, a half-hour slot at a time.
         // The guide is read once for all the slots (it used to be searched again for every slot,
         // which on a slower phone took minutes); each show is checked against every slot's words as it goes by.
+        // Prelims and the main card can air on different channels several hours apart.
+        val cardSearch = teamEvents.filter { it.id in explicit && SportsCatalog.league(it.leagueId)?.sport == Sport.FIGHTING }.associate { ev ->
+            ev.id to UFC_CARD.find(norm(ev.title))?.value
+        }
         val guideSlots = teamEvents.groupBy { it.startMs / (30 * MINUTE) }.values.mapNotNull { slot ->
             val slotStart = slot.minOf { it.startMs }
             val slotEnd = slot.maxOf { it.startMs }
-            val words = slot.flatMap { ev -> terms[ev.id]?.sqlWords.orEmpty() }.map { it.trim() }.filter { it.length >= 3 }.toSet()
+            val fightSlot = slot.any { it.id in cardSearch }
+            val words = slot.flatMap { ev ->
+                val guideTitle = if (ev.source == EventSource.GUIDE) norm(cleanTitle(ev.title)).trim() else null
+                terms[ev.id]?.sqlWords.orEmpty().filter { it.length >= 3 } + listOfNotNull(cardSearch[ev.id], guideTitle)
+            }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             if (words.isEmpty()) null
             else GuideSlot(
                 slot = slot,
-                fromMs = slotStart - 100 * MINUTE - input.shiftMs,
-                toMs = slotEnd + 70 * MINUTE - input.shiftMs,
-                minStopMs = slotStart + 10 * MINUTE - input.shiftMs,
+                fromMs = slotStart - (if (fightSlot) 6 * HOUR else 100 * MINUTE) - input.shiftMs,
+                toMs = slotEnd + (if (fightSlot) 6 * HOUR else 70 * MINUTE) - input.shiftMs,
+                minStopMs = slotStart + (if (fightSlot) -6 * HOUR else 10 * MINUTE) - input.shiftMs,
                 words = words
             )
         }
         val slotHits = if (!input.readGuide) guideSlots.map { emptyList() }
+            else if (input.onlyEventId != null) guideHitsBySlot(guideSlots, input.gentle, requireComplete = true)
             else runCatching { guideHitsBySlot(guideSlots, input.gentle) }.getOrDefault(guideSlots.map { emptyList() })
         guideSlots.forEachIndexed { slotIndex, gs ->
             val slot = gs.slot
@@ -256,8 +275,19 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                     val (nt, nd) = texts
                     // Disc golf shows never count for regular golf.
                     if (ev.id !in discIds && (hasWord(nt, "disc golf") || hasWord(nd, "disc golf"))) continue
-                    if (p.startMs > ev.startMs + 60 * MINUTE || p.stopMs < ev.startMs + 15 * MINUTE) continue
-                    var score = t.scoreText(nt, nd)
+                    val inSlot = p.startMs <= ev.startMs + 60 * MINUTE &&
+                        p.stopMs >= ev.startMs + 15 * MINUTE && (cardSearch.isEmpty() || p.startMs >= ev.startMs - 100 * MINUTE)
+                    val card = cardSearch[ev.id]
+                    if (otherNumberedCard(card, nt)) continue
+                    if (ev.id in cardSearch && FIGHT_STUDIO.any { hasWord(nt, it) }) continue
+                    val sameCard = card != null && (hasWord(nt, card) ||
+                        (hasWord(nd, card) && FIGHT_BROADCAST.any { hasWord(nt, it) }))
+                    val sameFight = ev.id in cardSearch && t.fightA.any { hasWord(nt, it) || hasWord(nd, it) } &&
+                        t.fightB.any { hasWord(nt, it) || hasWord(nd, it) }
+                    if (!inSlot && (!(sameCard || sameFight) || p.startMs !in (ev.startMs - 6 * HOUR)..(ev.startMs + 6 * HOUR))) continue
+                    val exactGuideTitle = ev.source == EventSource.GUIDE && norm(cleanTitle(p.title)) == norm(cleanTitle(ev.title))
+                    var score = if (sameCard || exactGuideTitle) 100 else t.scoreText(nt, nd)
+                    if (ev.source == EventSource.GUIDE && !exactGuideTitle && !sameCard && !sameFight) continue
                     // No start time (a race weekend, a tournament): a show on now that names this
                     // event, or the competition when nothing else of its kind is on.
                     if (ev.id in noStart) {
@@ -284,14 +314,18 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
 
         // ---- 2. The channel's own name.
         for (ev in teamEvents + guideFights) {
-            if (ev.state == GameState.POST && ev.startMs < input.now - 5 * HOUR) continue
+            if (ev.id !in explicit && ev.state == GameState.POST && ev.startMs < input.now - 5 * HOUR) continue
             val t = terms[ev.id] ?: continue
             val discEvent = ev.id in discIds
             // Only channels whose name has one of the game's words can match: look at those, not
             // all of them (with tens of thousands of channels, every game against every channel took minutes).
             forNamed(tokenIndex, t.anchorTokens(), names) { ch, nn ->
                 if (!discEvent && ch.key in discNames) return@forNamed
-                if (t.inName(nn)) { add(ev.id, ch.key, 95, "Channel name", null); byName++ }
+                val card = cardSearch[ev.id]
+                if (ev.id in cardSearch && nonFightBroadcast(nn)) return@forNamed
+                val namedCard = if (card == null) null else UFC_CARD.find(nn)?.value
+                if (namedCard != null && namedCard != card) return@forNamed
+                if (namedCard != null || t.inName(nn)) { add(ev.id, ch.key, 95, "Channel name", null); byName++ }
                 // A channel named for the event ("Tennis: Swiss Indoors Basel") or for the competition
                 // ("Sky Sports F1") when nothing else of its kind is on.
                 else if (ev.id in noStart) {
@@ -308,7 +342,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         val tNames = LiveTvClock.nowMs()
 
         // ---- 3. The network ESPN lists, with a sports show on at the time.
-        val networkEvents = teamEvents.filter { it.broadcasts.isNotEmpty() && it.startMs > input.now - 5 * HOUR && it.startMs <= input.networksUntil }
+        val networkEvents = teamEvents.filter { it.broadcasts.isNotEmpty() && (it.id in explicit || it.startMs > input.now - 5 * HOUR) && it.startMs <= input.networksUntil }
         val candidates = HashMap<String, List<LiveChannel>>()
         networkEvents.flatMap { it.broadcasts }.map { networkKey(it) }.distinct().forEach { n ->
             val mapped = NETWORKS[n]
@@ -342,7 +376,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             val onNow: Map<String, EpgProgram?> = runCatching {
                 db.range(at - input.shiftMs, at - input.shiftMs + 1, light = true, channels = keys)
                     .mapValues { (_, l) -> l.firstOrNull()?.let { p -> p.copy(startMs = p.startMs + input.shiftMs, stopMs = p.stopMs + input.shiftMs) } }
-            }.getOrDefault(emptyMap())
+            }.getOrElse { if (input.onlyEventId != null) throw it else emptyMap() }
             for (ev in slot) {
                 val league = SportsCatalog.league(ev.leagueId) ?: continue
                 val sporty = (league.guideWords + SPORT_WORDS).map { norm(it).trim() }
@@ -358,6 +392,8 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                             val showText = p?.let { norm(it.title + " " + (it.episode ?: "")) }
                             val score = when {
                                 ev.id !in discIds && showText != null && hasWord(showText, "disc golf") -> 0
+                                ev.id in cardSearch && (nonFightBroadcast(norm(ch.name)) || showText?.let(::nonFightBroadcast) == true) -> 0
+                                otherNumberedCard(cardSearch[ev.id], norm(ch.name)) || otherNumberedCard(cardSearch[ev.id], showText) -> 0
                                 p == null -> if (keys.size < 400 && national) 45 else 0
                                 // The guide says it's a different game: not this one.
                                 terms[ev.id]?.otherGame(showText!!) == true -> 0
@@ -521,7 +557,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
      * than every show being compared with every word for every slot. With [gentle], a short pause
      * every so often so the screen and video keep priority on slower phones.
      */
-    private fun guideHitsBySlot(slots: List<GuideSlot>, gentle: Boolean): List<List<Pair<String, EpgProgram>>> {
+    private fun guideHitsBySlot(slots: List<GuideSlot>, gentle: Boolean, requireComplete: Boolean = false): List<List<Pair<String, EpgProgram>>> {
         val out = List(slots.size) { ArrayList<Pair<String, EpgProgram>>() }
         if (slots.isEmpty()) return out
         // Every word looked for, by its first word, so a show only needs checking against the few that start like one of its own words.
@@ -531,7 +567,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         // most 80 ms), so the search uses about half a core instead of a whole one while nobody waits on it.
         var rows = 0
         var since = kotlin.time.TimeSource.Monotonic.markNow()
-        db.scanListings(slots.minOf { it.fromMs }, slots.maxOf { it.toMs }, slots.minOf { it.minStopMs }) { ch, start, stop, title, descr, cat ->
+        db.scanListings(slots.minOf { it.fromMs }, slots.maxOf { it.toMs }, slots.minOf { it.minStopMs }, requireComplete) { ch, start, stop, title, descr, cat ->
             if (gentle && ++rows % 1000 == 0) {
                 SportsPlatform.pause(since.elapsedNow().inWholeMilliseconds.coerceIn(3L, 80L))
                 since = kotlin.time.TimeSource.Monotonic.markNow()
@@ -712,6 +748,17 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
     }
 
     companion object {
+        private val FIGHT_STUDIO = listOf("countdown", "weigh in", "weigh ins", "press conference", "post show", "post fight show", "preview")
+        private fun nonFightBroadcast(text: String): Boolean =
+            FIGHT_STUDIO.any { hasWord(text, it) } || SportsCatalog.NOT_LIVE_WORDS.any { hasWord(text, it) }
+
+        private val FIGHT_BROADCAST = listOf("ufc", "mma", "mixed martial arts", "prelims", "preliminary", "undercard", "main card")
+        private val UFC_CARD = Regex("""\bufc [0-9]{1,4}\b""")
+        private fun otherNumberedCard(wanted: String?, text: String?): Boolean {
+            if (wanted == null || text == null) return false
+            return UFC_CARD.find(text)?.value?.let { it != wanted } == true
+        }
+
         private const val MINUTE = 60_000L
         private const val HOUR = 60 * MINUTE
         /** How far ahead games are looked for in your channels (most guides cover 2–3 days). */
@@ -1056,7 +1103,7 @@ internal interface GuideSearch {
     fun range(fromMs: Long, toMs: Long, light: Boolean, channels: Collection<String>): Map<String, List<EpgProgram>>
 
     /** Every listing starting in [fromMs, toMs) and still on after [minStopMs], one at a time, in a single pass. */
-    fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit)
+    fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean = false, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit)
 
     /** The stored guide. */
     object Store : GuideSearch {
@@ -1064,8 +1111,8 @@ internal interface GuideSearch {
             EpgStore.findByWords(fromMs, toMs, minStopMs, words, inDescription)
         override fun range(fromMs: Long, toMs: Long, light: Boolean, channels: Collection<String>) =
             EpgStore.range(fromMs, toMs, light, channels)
-        override fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, onRow: (String, Long, Long, String, String?, String?) -> Unit) =
-            EpgStore.scanListings(fromMs, toMs, minStopMs, onRow)
+        override fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean, onRow: (String, Long, Long, String, String?, String?) -> Unit) =
+            EpgStore.scanListings(fromMs, toMs, minStopMs, requireComplete, onRow)
     }
 
     /** A guide held in memory (tests). */
@@ -1083,7 +1130,7 @@ internal interface GuideSearch {
             }
             return out
         }
-        override fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, onRow: (String, Long, Long, String, String?, String?) -> Unit) {
+        override fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean, onRow: (String, Long, Long, String, String?, String?) -> Unit) {
             programs.forEach { (ch, list) ->
                 list.forEach { p ->
                     if (p.startMs < fromMs || p.startMs >= toMs || p.stopMs <= minStopMs) return@forEach

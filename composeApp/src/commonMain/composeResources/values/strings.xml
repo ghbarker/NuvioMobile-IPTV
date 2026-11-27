@@ -3038,8 +3038,14 @@
     <string name="livetv_sports_clear_fixes">Forget channel fixes</string>
     <string name="livetv_sports_clear_fixes_description">Clears every channel you picked or ruled out for games, networks and teams</string>
     <string name="livetv_sports_watch_on">Watch on your channels</string>
-    <string name="livetv_sports_no_channels">None of your channels seem to show this. Use Fix channel to pick one.</string>
+    <string name="livetv_sports_no_channels">No matching channels yet. Open Fix channel to search your guide again or pick a channel by name.</string>
     <string name="livetv_sports_fix_channel">Fix channel</string>
+    <string name="livetv_sports_find_channels">Find Channels</string>
+    <string name="livetv_sports_finding_channels">Finding channels…</string>
+    <string name="livetv_sports_find_channels_help">Search your channels and TV guide for this game, or pick a channel by name.</string>
+    <string name="livetv_sports_find_channels_none">No channels matched this game. You can still pick one by name.</string>
+    <string name="livetv_sports_find_channels_error">Channel search failed. Try again.</string>
+    <string name="livetv_sports_find_channels_updated">Channel list updated for %1$s</string>
     <string name="livetv_sports_pick_channel">Pick the right channel…</string>
     <string name="livetv_sports_not_this_channel">Not this channel</string>
     <string name="livetv_sports_showing_it">SHOWING IT</string>

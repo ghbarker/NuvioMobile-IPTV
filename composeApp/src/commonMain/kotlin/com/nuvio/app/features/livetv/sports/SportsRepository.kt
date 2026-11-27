@@ -8,6 +8,8 @@ import com.nuvio.app.features.livetv.data.NowNext
 import com.nuvio.app.features.livetv.data.VideoPlaying
 import com.nuvio.app.features.livetv.model.LiveTvLoadReport
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.model.LiveTvSettings
+import com.nuvio.app.features.livetv.model.LiveUserState
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.parental.ParentalControls
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
@@ -21,6 +23,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.Volatile
@@ -1476,8 +1481,13 @@ internal object SportsRepository {
             val saved = LiveTvFiles.readSmall(DIR, "matches.json")
             if (saved != null) {
                 val chans = liveRepo.displayChannels.first { it.isNotEmpty() }.associateBy { it.key }
-                if (_matches.value.isEmpty()) runCatching { restoreMatches(saved, chans) }
+                runCatching { restoreMatches(saved, chans) }
             }
+            val pendingWrite = synchronized(publishLock) {
+                initialMatchesRead = true
+                recentSearches.isNotEmpty() || fullMatchesPublished
+            }
+            if (pendingWrite) runCatching { saveMatches() }
         }
         // Not before the saved games are read: a search with no games found nothing, then ran again.
         cacheReady.first { it }
@@ -1572,7 +1582,9 @@ internal object SportsRepository {
         LiveTvLoadReport.add("Sports matching waited ${(LiveTvClock.nowMs() - t0) / 1000} s while video was playing")
     }
 
-    private fun saveMatches() {
+    private val saveMatchLock = SynchronizedObject()
+    private fun saveMatches() = synchronized(saveMatchLock) {
+        if (!initialMatchesRead) return@synchronized
         val arr = JSONArray()
         for ((id, list) in _matches.value) {
             val o = JSONObject().put("id", id)
@@ -1600,36 +1612,83 @@ internal object SportsRepository {
             }
             if (list.isNotEmpty()) out[o.getString("id")] = list
         }
-        if (out.isNotEmpty() && _matches.value.isEmpty()) {
-            _matches.value = out
-            LiveTvLoadReport.add("Sports: showing last time's channels for ${out.size} games while matching again")
+        synchronized(publishLock) {
+            if (!fullMatchesPublished && out.isNotEmpty()) {
+                _matches.update { current -> restoreUnsearchedMatches(out, current, recentSearches.keys) }
+                LiveTvLoadReport.add("Sports: read last time's channels for ${out.size} games while matching again")
+            }
         }
     }
 
     @Volatile private var pickPending = false
 
-    private suspend fun runMatch(quickOnly: Boolean = false) = withContext(Dispatchers.Default) {
-        val live = prefs.currentSettings()
-        val user = prefs.currentUserState()
-        val sp = settings.value
-        // Channels you picked yourself (Fix channel) count even in a hidden group (also after
-        // the provider renamed them).
-        val all = liveRepo.displayChannels.value
-        val picked = SportsPickedChannels.keys(SportsPickedChannels.resolve(sp, all))
-        val channels: List<LiveChannel> = all.filter { ch ->
+    private fun matchingChannels(all: List<LiveChannel>, live: LiveTvSettings, user: LiveUserState, resolved: SportsSettings): List<LiveChannel> {
+        // Picks in hidden groups still count. Hidden playlists and parental controls always apply.
+        val picked = SportsPickedChannels.keys(resolved)
+        return all.filter { ch ->
             (ch.key in picked || (ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups)) &&
                 !user.hidesPlaylistOf(ch) &&
                 !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                 !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
         }
+    }
+
+    // A completed explicit search wins over a bulk scan which started earlier. Remember the last
+    // few searched games so the next regular scan can use their wider window too.
+    private val recentSearches = LinkedHashMap<String, Long>()
+    private var searchSequence = 0L
+    @Volatile private var initialMatchesRead = false
+    private var fullMatchesPublished = false
+    private val publishLock = SynchronizedObject()
+    private val manualSearch = Mutex()
+
+    suspend fun findChannelsForGame(event: SportsEvent): Int = withContext(Dispatchers.Default) {
+        manualSearch.withLock {
+            val profile = prefs.activeProfile.value
+            val generation = liveRepo.guideGeneration.value
+            val all = liveRepo.displayChannels.value
+            check(all.isNotEmpty() || liveRepo.status.value.loadedOnce) { "Channels are still loading" }
+            val before = prefs.sportsSettingsNow()
+            val resolved = SportsPickedChannels.resolve(SportsSettings.fromJson(before), all)
+            val live = prefs.currentSettings()
+            val user = prefs.currentUserState()
+            val channels = matchingChannels(all, live, user, resolved)
+            val current = eventById(event.id) ?: event
+            val peers = events.value.filterNot { it.id == current.id }
+            val found = SportsMatcher().match(SportsMatcher.Input(peers + current, channels, user.channelQuality,
+                live.epgOffsetMinutes * MINUTE, resolved, LiveTvClock.nowMs(), onlyEventId = current.id)).matches
+            currentCoroutineContext().ensureActive()
+            val rows = found[current.id].orEmpty()
+            synchronized(publishLock) {
+                check(profile == prefs.activeProfile.value && generation == liveRepo.guideGeneration.value &&
+                    before == prefs.sportsSettingsNow() && all === liveRepo.displayChannels.value &&
+                    live == prefs.currentSettings() && user == prefs.currentUserState()) {
+                    "Channels or guide changed during the search"
+                }
+                recentSearches.remove(current.id)
+                recentSearches[current.id] = ++searchSequence
+                if (recentSearches.size > 32) recentSearches.remove(recentSearches.keys.first())
+                _matches.update { previous -> if (rows.isEmpty()) previous - current.id else previous + (current.id to rows) }
+            }
+            rebuildLiveScores()
+            runCatching { saveMatches() }
+            rows.size
+        }
+    }
+
+    private suspend fun runMatch(quickOnly: Boolean = false) = withContext(Dispatchers.Default) {
+        val requested = synchronized(publishLock) { recentSearches.toMap() }
+        val live = prefs.currentSettings()
+        val user = prefs.currentUserState()
+        val all = liveRepo.displayChannels.value
+        val saved = settings.value
+        val s = SportsPickedChannels.resolve(saved, all)
+        val channels = matchingChannels(all, live, user, s)
         if (channels.isEmpty()) return@withContext
         _matching.value = true
         try {
             val now = LiveTvClock.nowMs()
             val shift = live.epgOffsetMinutes * MINUTE
-            val saved = settings.value
-            // Your picks on channels the provider has since renamed: on the renamed channel.
-            val s = SportsPickedChannels.resolve(saved, liveRepo.displayChannels.value)
             val f = follows.value
             val guideLeagues = SportsCatalog.all.filter { it.guideOnly }
             val keys = channels.associateBy { it.key }
@@ -1645,7 +1704,10 @@ internal object SportsRepository {
             }.onSuccess { quick ->
                 if (!quickOnly) LiveTvLoadReport.add("Sports quick channels: ${quick.matches.size} games in ${LiveTvClock.nowMs() - quickAt} ms")
                 if (quick.matches.isNotEmpty()) {
-                    addMatches(quick.matches, s)
+                    synchronized(publishLock) {
+                        // Quick (name-only) matches must not bring a stale channel back after an explicit search.
+                        addMatches(quick.matches - recentSearches.keys, s)
+                    }
                     rebuildLiveScores()
                 }
             }
@@ -1658,9 +1720,15 @@ internal object SportsRepository {
                 }.getOrDefault(emptyList())
             }
             guideData.value = days
+            val scheduled = events.value
+            val extra = if (requested.isEmpty()) emptyList() else {
+                val missing = requested.keys - scheduled.map { it.id }.toSet()
+                known.value.filter { it.id in missing }
+            }
             val result = matcher.match(
                 SportsMatcher.Input(
-                    events = events.value,
+                    events = scheduled + extra,
+                    requestedIds = requested.keys,
                     channels = channels,
                     quality = user.channelQuality,
                     shiftMs = shift,
@@ -1670,7 +1738,15 @@ internal object SportsRepository {
                     gentle = viewers.value == 0
                 )
             )
-            _matches.value = keepPicksMadeMeanwhile(result.matches, saved)
+            synchronized(publishLock) {
+                val refreshed = keepPicksMadeMeanwhile(result.matches, saved).toMutableMap()
+                for ((id, search) in recentSearches) if (search != requested[id]) {
+                    val newer = _matches.value[id]
+                    if (newer == null) refreshed.remove(id) else refreshed[id] = newer
+                }
+                _matches.value = refreshed
+                fullMatchesPublished = true
+            }
             LiveTvLoadReport.add(result.summary)
             rebuildLiveScores()
         } finally {
@@ -2183,7 +2259,9 @@ internal object SportsRepository {
         // Show it on the game straight away, and search again now.
         liveRepo.displayChannels.value.firstOrNull { it.key == channelKey }?.let { ch ->
             val mine = ChannelMatch(ch, 200, "Your pick", null, SportsMatcher.nameQuality(ch.name), false)
-            _matches.value = _matches.value + (ev.id to (listOf(mine) + _matches.value[ev.id].orEmpty().filter { it.channel.key != channelKey }))
+            synchronized(publishLock) {
+                _matches.update { old -> old + (ev.id to (listOf(mine) + old[ev.id].orEmpty().filter { it.channel.key != channelKey })) }
+            }
         }
         pickPending = true
         kickMatch("a channel pick")
@@ -2200,7 +2278,9 @@ internal object SportsRepository {
                 leagueChannels = s.leagueChannels.filterNot { (l, key) -> key == channelKey && l == ev.leagueId }
             )
         }
-        _matches.value[ev.id]?.let { l -> _matches.value = _matches.value + (ev.id to l.filter { it.channel.key != channelKey }) }
+        synchronized(publishLock) {
+            _matches.update { old -> old[ev.id]?.let { old + (ev.id to it.filter { m -> m.channel.key != channelKey }) } ?: old }
+        }
         pickPending = true
         kickMatch("a channel pick")
     }
@@ -2296,3 +2376,10 @@ object SportsLive {
     val alerts: SharedFlow<SportsAlert> = _alerts
     fun alert(a: SportsAlert) { _alerts.tryEmit(a) }
 }
+
+/** A completed one-game search can also be an empty result. Leave it and newer live rows alone. */
+internal fun restoreUnsearchedMatches(
+    saved: Map<String, List<ChannelMatch>>,
+    current: Map<String, List<ChannelMatch>>,
+    searched: Set<String>,
+): Map<String, List<ChannelMatch>> = (saved - searched) + current

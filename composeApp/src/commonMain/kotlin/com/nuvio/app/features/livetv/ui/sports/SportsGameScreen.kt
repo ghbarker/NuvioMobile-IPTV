@@ -113,6 +113,12 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.livetv_sports_fix_channel
+import nuvio.composeapp.generated.resources.livetv_sports_find_channels
+import nuvio.composeapp.generated.resources.livetv_sports_finding_channels
+import nuvio.composeapp.generated.resources.livetv_sports_find_channels_help
+import nuvio.composeapp.generated.resources.livetv_sports_find_channels_none
+import nuvio.composeapp.generated.resources.livetv_sports_find_channels_error
+import nuvio.composeapp.generated.resources.livetv_sports_find_channels_updated
 import nuvio.composeapp.generated.resources.livetv_sports_game_gone
 import nuvio.composeapp.generated.resources.livetv_sports_latest_scoring
 import nuvio.composeapp.generated.resources.livetv_sports_maybe
@@ -850,10 +856,13 @@ private fun RecordDialog(ev: SportsEvent, matches: List<ChannelMatch>, use24h: B
 }
 
 @Composable
-private fun FixChannelDialog(ev: SportsEvent, matches: List<ChannelMatch>, onDismiss: () -> Unit) {
-    val tokens = MaterialTheme.nuvio
-    val repo = SportsRepository
-    var picking by remember { mutableStateOf(matches.isEmpty()) }
+internal fun FixChannelDialog(
+    ev: SportsEvent,
+    matches: List<ChannelMatch>,
+    onDismiss: () -> Unit,
+    findChannels: suspend (SportsEvent) -> Int = { SportsRepository.findChannelsForGame(it) },
+) {
+    var picking by remember(ev.id) { mutableStateOf(false) }
     var chosen by remember { mutableStateOf<LiveChannel?>(null) }
     val pick = chosen
     if (pick != null) {
@@ -862,7 +871,7 @@ private fun FixChannelDialog(ev: SportsEvent, matches: List<ChannelMatch>, onDis
         val teams = ev.ordered(league?.sport ?: Sport.OTHER).map { it.team }
         if (networks.isEmpty() && teams.isEmpty() && league?.kind != LeagueKind.EVENT) {
             LaunchedEffect(pick.key) {
-                repo.pickChannel(ev, pick.key, forNetworks = false)
+                SportsRepository.pickChannel(ev, pick.key, forNetworks = false)
                 NuvioToastController.show("Saved: ${ev.title} on ${pick.name}")
                 onDismiss()
             }
@@ -871,15 +880,15 @@ private fun FixChannelDialog(ev: SportsEvent, matches: List<ChannelMatch>, onDis
         DialogSurface(onDismissRequest = onDismiss, title = "Use ${pick.name} for more games?", message = "Pick a network or a team, and their games from now on use ${pick.name} too.") {
             Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
                 networks.firstOrNull()?.let { n ->
-                    DialogOption(text = "Yes, every $n game", selected = false, onClick = { repo.pickChannel(ev, pick.key, forNetworks = true); NuvioToastController.show("Saved: $n games use ${pick.name}"); onDismiss() })
+                    DialogOption(text = "Yes, every $n game", selected = false, onClick = { SportsRepository.pickChannel(ev, pick.key, forNetworks = true); NuvioToastController.show("Saved: $n games use ${pick.name}"); onDismiss() })
                 }
                 if (league?.kind == LeagueKind.EVENT) {
-                    DialogOption(text = "Yes, every ${league.name} event", selected = false, onClick = { repo.pickChannel(ev, pick.key, forNetworks = false, forLeague = true); NuvioToastController.show("Saved: ${league.name} events use ${pick.name}"); onDismiss() })
+                    DialogOption(text = "Yes, every ${league.name} event", selected = false, onClick = { SportsRepository.pickChannel(ev, pick.key, forNetworks = false, forLeague = true); NuvioToastController.show("Saved: ${league.name} events use ${pick.name}"); onDismiss() })
                 }
                 teams.forEach { t ->
-                    DialogOption(text = "Yes, every ${t.name} game", selected = false, onClick = { repo.pickChannel(ev, pick.key, forNetworks = false, forTeam = t); NuvioToastController.show("Saved: ${t.name} games use ${pick.name}"); onDismiss() })
+                    DialogOption(text = "Yes, every ${t.name} game", selected = false, onClick = { SportsRepository.pickChannel(ev, pick.key, forNetworks = false, forTeam = t); NuvioToastController.show("Saved: ${t.name} games use ${pick.name}"); onDismiss() })
                 }
-                DialogOption(text = "Just this game", selected = false, onClick = { repo.pickChannel(ev, pick.key, forNetworks = false); NuvioToastController.show("Saved: ${ev.title} on ${pick.name}"); onDismiss() })
+                DialogOption(text = "Just this game", selected = false, onClick = { SportsRepository.pickChannel(ev, pick.key, forNetworks = false); NuvioToastController.show("Saved: ${ev.title} on ${pick.name}"); onDismiss() })
             }
             DialogButtons { DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss) }
         }
@@ -889,11 +898,39 @@ private fun FixChannelDialog(ev: SportsEvent, matches: List<ChannelMatch>, onDis
         ChannelPickerDialog(title = "Pick the channel for ${ev.title}", onPick = { chosen = it }, onDismiss = onDismiss)
         return
     }
-    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_sports_fix_channel), message = "Take wrong channels off the list, or pick the right one.") {
+    var searching by remember(ev.id) { mutableStateOf(false) }
+    var message by remember(ev.id) { mutableStateOf(Res.string.livetv_sports_find_channels_help) }
+    val updated = stringResource(Res.string.livetv_sports_find_channels_updated, ev.title)
+    LaunchedEffect(ev.id, searching) {
+        if (searching) {
+            try {
+                if (findChannels(ev) > 0) {
+                    NuvioToastController.show(updated)
+                    onDismiss()
+                } else {
+                    message = Res.string.livetv_sports_find_channels_none
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                message = Res.string.livetv_sports_find_channels_error
+            } finally {
+                searching = false
+            }
+        }
+    }
+    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_sports_fix_channel), message = stringResource(message)) {
+        DialogOption(
+            text = stringResource(if (searching) Res.string.livetv_sports_finding_channels else Res.string.livetv_sports_find_channels),
+            selected = false,
+            enabled = !searching,
+            role = androidx.compose.ui.semantics.Role.Button,
+            onClick = { message = Res.string.livetv_sports_find_channels_help; searching = true },
+        )
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
             items(matches, key = { it.channel.key }) { m ->
                 DialogOption(text = m.channel.name, description = stringResource(Res.string.livetv_sports_not_this_channel), selected = false, onClick = {
-                    repo.blockChannel(ev, m.channel.key)
+                    SportsRepository.blockChannel(ev, m.channel.key)
                     NuvioToastController.show("${m.channel.name} won't be used for this game")
                 })
             }

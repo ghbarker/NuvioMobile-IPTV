@@ -73,6 +73,7 @@ Sports shows scores and schedules, and works out **which of your own channels ar
 - **Edit League List:** a row on All Events removes leagues you never want to see (and brings them back).
 - **Tables:** league tables with form, place changes and playoff lines, and your team marked.
 - **Game pages:** the score by period, scoring as it happens, team stats, line-ups, leaderboards and fight cards.
+- **Find Channels:** open a game and tap **Fix channel → Find Channels** to check your current guide and playlist for other channels showing that event.
 - **Never miss it:** reminders, **Game Alerts** (offered when you first follow a team) with the live score while your team plays, a heads-up when a game starts and the **final score at full time**, even with the app closed, and **Record a game** with extra time for overtime.
 - **Score alerts on any game:** turn them on from a game's page, even for teams you don't follow.
 - **Spoiler-free:** **Hide Scores** keeps results off the screen until you're ready.

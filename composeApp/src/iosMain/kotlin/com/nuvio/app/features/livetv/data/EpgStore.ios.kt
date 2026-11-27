@@ -48,7 +48,7 @@ internal actual object EpgStore {
         return out
     }
 
-    actual fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit) {
+    actual fun scanListings(fromMs: Long, toMs: Long, minStopMs: Long, requireComplete: Boolean, onRow: (ch: String, start: Long, stop: Long, title: String, descr: String?, cat: String?) -> Unit) {
         programs.forEach { (ch, list) ->
             list.forEach { p ->
                 if (p.startMs < fromMs || p.startMs >= toMs || p.stopMs <= minStopMs) return@forEach
