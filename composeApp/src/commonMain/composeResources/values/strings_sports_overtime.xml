@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_sports_watch_live_channel">Watch live channel</string>
+    <string name="livetv_sports_final_tune_hint">The game is listed as final. Choose a channel to see what’s on now.</string>
+    <string name="livetv_sports_choose_another_channel">Choose another channel</string>
+    <string name="livetv_sports_no_live_channels">No live channels found for this game.</string>
+</resources>
