@@ -99,6 +99,11 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
     fun match(input: Input): Result {
         val byKey = input.channels.associateBy { it.key }
         val rank = preferenceRank(input.settings)
+        // Resolve each channel at most once across the games and broadcasts in this pass.
+        val qualities = HashMap<String, SportsChannelQuality>()
+        fun quality(ch: LiveChannel) = qualities.getOrPut(ch.key) {
+            sportsChannelQuality(ch.name, input.quality[ch.key]) ?: UNKNOWN_QUALITY
+        }
         val tStart = LiveTvClock.nowMs()
         val nd0 = nameData(input.channels)
         val names = nd0.names
@@ -346,6 +351,14 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
 
         // ---- 3. The network ESPN lists, with a sports show on at the time.
         val networkEvents = teamEvents.filter { it.broadcasts.isNotEmpty() && (it.id in explicit || it.startMs > input.now - 5 * HOUR) && it.startMs <= input.networksUntil }
+        val byPreference = compareByDescending<Triple<LiveChannel, Int, EpgProgram?>> { rank(it.first) }
+        val networkOrder = if (input.settings.bestChannelFirst) {
+            byPreference.thenByDescending { quality(it.first).height }.thenByDescending { quality(it.first).frameRate }
+        } else {
+            byPreference.thenByDescending {
+                qualityRank(input.quality[it.first.key]?.let(::matchQualityTier) ?: nameQuality(it.first.name))
+            }
+        }
         val candidates = HashMap<String, List<LiveChannel>>()
         networkEvents.flatMap { it.broadcasts }.map { networkKey(it) }.distinct().forEach { n ->
             val mapped = NETWORKS[n]
@@ -408,10 +421,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                             Triple(ch, score, p)
                         }
                         .filter { it.second > 0 }
-                        .sortedWith(
-                            compareByDescending<Triple<LiveChannel, Int, EpgProgram?>> { rank(it.first) }
-                                .thenByDescending { qualityRank(input.quality[it.first.key] ?: nameQuality(it.first.name)) }
-                        )
+                        .sortedWith(networkOrder)
                         // More than the top few: their FHD/HD/SD copies (one row on the game page)
                         // and the same network from other providers, as backups if one freezes.
                         .take(if (national) 8 else 12)
@@ -442,7 +452,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                         score = f.score,
                         how = f.how,
                         program = f.program,
-                        quality = input.quality[ch.key] ?: nameQuality(ch.name),
+                        quality = quality(ch).label.ifEmpty { null },
                         catchup = ch.catchup != null && CatchupUrlBuilder.isAvailable(ch.catchup, f.program?.startMs ?: ev.startMs, input.now)
                     )
                 }
@@ -450,7 +460,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             // Every channel the guide has for it (FHD/HD/SD copies are folded into one row on the
             // game page, other regions under "+ N from other regions"), so nothing the guide shows
             // is left out. 40 is only a guard against a runaway list; it costs no extra searching.
-            out[eventId] = sortMatches(list, input.settings.bestChannelFirst, rank).take(40)
+            out[eventId] = orderedMatches(list, input.settings.bestChannelFirst, rank) { quality(it.channel) }.take(40)
         }
         // Events that run for days (golf, race weekends): what was looked for and found, for the report.
         val multi = teamEvents.filter { it.id in noStart }.joinToString(" | ") { ev ->
@@ -979,6 +989,8 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
             "4K" -> 4; "FHD" -> 3; "HD" -> 2; "SD" -> 1; else -> 2
         }
 
+        private val UNKNOWN_QUALITY = SportsChannelQuality(0, 0f, "", SportsQualitySource.PROVIDER)
+
         /** Your own region's words, as channel names and groups use them ("UK: TNT Sports 1", group "UK | Sports"). */
         internal val REGION_WORDS = mapOf(
             "UK" to listOf("uk", "gb", "united kingdom", "britain", "england", "scotland"),
@@ -1079,6 +1091,13 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         }
 
         fun sortMatches(list: List<ChannelMatch>, bestFirst: Boolean, rank: (LiveChannel) -> Int = { 0 }): List<ChannelMatch> {
+            val qualities = if (bestFirst) list.associate { it.channel.key to sportsChannelQuality(it.channel.name, it.quality) } else emptyMap()
+            return orderedMatches(list, bestFirst, rank) { qualities[it.channel.key] ?: UNKNOWN_QUALITY }
+        }
+
+        private fun orderedMatches(
+            list: List<ChannelMatch>, bestFirst: Boolean, rank: (LiveChannel) -> Int, quality: (ChannelMatch) -> SportsChannelQuality,
+        ): List<ChannelMatch> {
             fun band(score: Int) = when {
                 score >= 150 -> 3
                 score >= 80 -> 2
@@ -1090,7 +1109,8 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
                 compareByDescending<ChannelMatch> { if (band(it.score) == 3) 1 else 0 }
                     .thenByDescending { rank(it.channel) }
                     .thenByDescending { band(it.score) }
-                    .thenByDescending { qualityRank(it.quality) }
+                    .thenByDescending { quality(it).height }
+                    .thenByDescending { quality(it).frameRate }
                     .thenByDescending { it.score }
                     .thenBy { it.channel.name.length }
             ) else list.sortedWith(

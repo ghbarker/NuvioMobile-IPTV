@@ -198,4 +198,14 @@ class SportsMatcherTest {
         assertEquals("lang:es", SportsMatcher.channelRegionCode(channel("x", "ES: ESPN Deportes")))
         assertEquals(SportsMatcher.copyKey(channel("a", "ESPN FHD")), SportsMatcher.copyKey(channel("b", "ESPN HD")))
     }
+
+    @Test
+    fun keepsHighQualityCopiesBeforeTheNationalNetworkCandidateCap() {
+        val event = game("abc", bears, lions, broadcasts = listOf("ESPN"))
+        val channels = (1..10).map { channel("low$it", "ESPN (720p25)") } +
+            channel("fast", "ESPN (1080p50)") + channel("slow", "ESPN (1080p25)")
+        val result = match(event, channels = channels).getValue(event.id)
+        assertEquals(8, result.size)
+        assertEquals(listOf("fast", "slow"), result.take(2).map { it.channel.key })
+    }
 }

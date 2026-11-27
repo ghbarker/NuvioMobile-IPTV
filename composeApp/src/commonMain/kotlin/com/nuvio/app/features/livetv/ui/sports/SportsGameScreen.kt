@@ -85,6 +85,8 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.model.BackupOrder
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
@@ -101,14 +103,20 @@ import com.nuvio.app.features.livetv.sports.ChannelPickerSearchResult
 import com.nuvio.app.features.livetv.sports.channelPickerSearchResults
 import com.nuvio.app.features.livetv.sports.SportsCatalog
 import com.nuvio.app.features.livetv.sports.SportsEvent
+import com.nuvio.app.features.livetv.sports.SportsChannelRowInfo
 import com.nuvio.app.features.livetv.sports.SportsMatcher
+import com.nuvio.app.features.livetv.sports.SportsQualitySource
+import com.nuvio.app.features.livetv.sports.sportsGameChannelRows
 import com.nuvio.app.features.livetv.sports.SportsRecordings
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.SportsVideos
 import com.nuvio.app.features.livetv.sports.Standings
 import com.nuvio.app.features.livetv.sports.TeamInfo
 import com.nuvio.app.features.livetv.ui.ChannelLogo
+import com.nuvio.app.features.livetv.ui.GameSourceOrderButton
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -133,6 +141,10 @@ import nuvio.composeapp.generated.resources.livetv_sports_showing_it
 import nuvio.composeapp.generated.resources.livetv_sports_watch_on
 import nuvio.composeapp.generated.resources.livetv_sports_watch_live_channel
 import nuvio.composeapp.generated.resources.livetv_sports_your_pick
+import nuvio.composeapp.generated.resources.livetv_sports_quality_measured
+import nuvio.composeapp.generated.resources.livetv_sports_quality_reported
+import nuvio.composeapp.generated.resources.livetv_sports_quality_reported_format
+import nuvio.composeapp.generated.resources.livetv_sports_quality_saved
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
@@ -179,10 +191,10 @@ fun SportsGameScreen(
 // ------------------------------------------------------------------ what the guide says
 
 /** How sure we are, from the guide, that tuning in now shows the game (the TV app's guide lines). */
-private enum class GuideKind { NOW, LATER, OTHER, UNKNOWN, ENDED }
+internal enum class GuideKind { NOW, LATER, OTHER, UNKNOWN, ENDED }
 
 /** One channel's guide line: a short [text] in its colour ([kind]) and, sometimes, what's on now ([detail]). */
-private class GuideLine(val kind: GuideKind, val text: String, val detail: String?)
+internal class GuideLine(val kind: GuideKind, val text: String, val detail: String?)
 
 /**
  * What [m]'s channel guide says about the game: on now, on later (and what's on until then),
@@ -327,10 +339,28 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
     LaunchedEffect(ev.leagueId, ev.state) {
         if (!hide && league != null && repo.mayHaveTable(league)) runCatching { repo.standings(ev.leagueId) }
     }
-    val grouped = remember(matches) { SportsMatcher.groupCopies(matches) }
+    val qualityUpdates = remember { LiveTvPreferences.userState.map { it.channelQuality }.distinctUntilChanged() }
+    val channelQuality by qualityUpdates.collectAsStateWithLifecycle(LiveTvPreferences.userState.value.channelQuality)
+    val liveSettings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+    val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
+    val playlistNames = remember(playlists, ownChannels) {
+        buildMap {
+            playlists.forEach { put(it.id, it.name) }
+            ownChannels.forEach { m -> if (m.channel.sourceId !in this) put(m.channel.sourceId, m.channel.sourceName) }
+        }
+    }
+    val gameAddons = remember(matches) {
+        matches.map { it.channel }.filter(BackupOrder::isAddon).map { it.sourceName }.distinct()
+    }
+    val sourceOrder = remember(playlistNames, gameAddons, liveSettings.backupGroupBy, liveSettings.backupSourceOrder) {
+        BackupOrder.gameSources(liveSettings, playlistNames.keys.toList(), gameAddons)
+    }
+    val channelRows = remember(matches, channelQuality, settings.bestChannelFirst, sourceOrder) {
+        sportsGameChannelRows(matches, channelQuality, settings.bestChannelFirst, sourceOrder)
+    }
     val strip = remember(known, follows, ev.id, ev.leagueId, ev.startMs, now / 60_000L) { stripGames(ev, known, follows, now) }
     // What each channel's guide has on now (for its guide line), checked again every minute.
-    val guideKeys = remember(grouped) { grouped.map { it.first().channel }.filter { it.sourceId != SportsAddonSource.SOURCE_ID }.map { it.key } }
+    val guideKeys = remember(channelRows) { channelRows.map { it.match.channel }.filter { it.sourceId != SportsAddonSource.SOURCE_ID }.map { it.key } }
     val guideNow by produceState<Map<String, EpgProgram?>>(emptyMap(), guideKeys) {
         while (true) {
             value = runCatching { repo.nowAndNext(guideKeys).mapValues { it.value.now } }.getOrDefault(value)
@@ -395,7 +425,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
         // ---- Watch (or play the replay), Multiview, and the game's other actions
         item(key = "actions") {
             Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                val firstChannel = grouped.firstOrNull()?.first()
+                val firstChannel = matches.firstOrNull()
                 val firstReplay = replays.firstOrNull()
                 val main: Pair<String, () -> Unit>? = when {
                     ev.state == GameState.POST && firstReplay != null -> (if (firstReplay.how.startsWith("Full game") || firstReplay.how.startsWith(SportsVideos.Kind.REPLAY.label)) "Play full replay" else "Play " + firstReplay.how.substringBefore(" · ").lowercase()) to { playVideo(firstReplay) }
@@ -485,9 +515,9 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
                 }
             }
             // Your channels, folded into one line (open it for Watch from start).
-            if (grouped.isNotEmpty()) {
+            if (channelRows.isNotEmpty()) {
                 item(key = "channels-fold") {
-                    val fromStart = grouped.count { g -> g.any { it.catchup } }
+                    val fromStart = channelRows.count { it.hasCatchup }
                     Row(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(tokens.shapes.card).background(tokens.colors.surface)
                             .clickable(onClickLabel = if (channelsOpen) "Close" else "Open") { channelsOpen = !channelsOpen }
@@ -497,7 +527,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
                     ) {
                         Icon(Icons.Filled.LiveTv, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(20.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Shown on ${grouped.size} of your channel${if (grouped.size == 1) "" else "s"}", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                            Text("Shown on ${channelRows.size} of your channel${if (channelRows.size == 1) "" else "s"}", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
                             Text(
                                 if (fromStart > 0) "$fromStart can play it from the start · hold a channel for Watch from start" else "Hold a channel for more",
                                 style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted,
@@ -510,12 +540,15 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
         } else {
             // ---- live or coming up: your channels, each with what its guide says
             item(key = "channels-h") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
                     SectionHeading(stringResource(Res.string.livetv_sports_watch_on).uppercase(), null, modifier = Modifier.weight(1f))
                     if (matching) NuvioLoadingIndicator(size = NuvioTokens.Space.s16)
+                    if (matches.isNotEmpty()) {
+                        GameSourceOrderButton(liveSettings, playlistNames, gameAddons, LiveTvPreferences::updateSettings)
+                    }
                 }
             }
-            if (grouped.isEmpty()) {
+            if (channelRows.isEmpty()) {
                 item(key = "channels-none") {
                     Text(
                         if (!hasChannels) "Add a playlist in Live TV settings to watch games." else if (matching) "Looking through your channels…" else stringResource(Res.string.livetv_sports_no_channels),
@@ -525,11 +558,11 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (Sport
             }
         }
         if (ev.state != GameState.POST || channelsOpen) {
-            items(grouped, key = { "c:" + it.first().channel.key }) { copies ->
-                val m = copies.first()
+            items(channelRows, key = { "c:" + it.match.channel.key }) { row ->
+                val m = row.match
                 val guide = if (m.channel.sourceId == SportsAddonSource.SOURCE_ID || ev.state == GameState.POST) null else guideLine(ev, m, guideNow[m.channel.key], now, use24h)
                 SportsChannelRow(
-                    m = m, copies = copies.size, ev = ev, use24h = use24h, guide = guide,
+                    row = row, guide = guide, ev = ev,
                     onPlay = { c -> actions.onPlay(c.channel, ev.title.takeUnless { ev.state == GameState.POST }) },
                     onLongPress = { c ->
                         if (c.channel.sourceId != SportsAddonSource.SOURCE_ID) {
@@ -729,8 +762,9 @@ private fun preGameLine(s: Side, table: Standings?, x: GameExtras?): String? {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use24h: Boolean, guide: GuideLine? = null, onPlay: (ChannelMatch) -> Unit, onLongPress: (ChannelMatch) -> Unit) {
+internal fun SportsChannelRow(row: SportsChannelRowInfo, guide: GuideLine? = null, onPlay: (ChannelMatch) -> Unit, onLongPress: (ChannelMatch) -> Unit, ev: SportsEvent? = null) {
     val tokens = MaterialTheme.nuvio
+    val m = row.match
     Row(
         modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface)
             .combinedClickable(onClick = { onPlay(m) }, onLongClick = { onLongPress(m) })
@@ -742,9 +776,8 @@ private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use2
         ChannelLogo(m.channel, size = 40.dp)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
-                Text(m.channel.name, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                m.quality?.let { SportsBadge(it, tokens.colors.surfaceElevated, tokens.colors.textSecondary) }
-                if (copies > 1) Text("+${copies - 1}", style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
+                Text(m.channel.name, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (row.copies > 1) Text("+${row.copies - 1}", style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
             }
             // What the channel's guide says (green: showing it now; amber: something else on), then where it's from.
             if (guide != null) {
@@ -763,11 +796,26 @@ private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use2
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        when {
-            m.score >= 150 -> SportsBadge(stringResource(Res.string.livetv_sports_your_pick), tokens.colors.accent, tokens.colors.onAccent)
-            // The guide line says it already; only "maybe" stays next to it.
-            m.sure && guide == null && ev.state != GameState.POST -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
-            !m.sure -> SportsBadge(stringResource(Res.string.livetv_sports_maybe), tokens.colors.surfaceElevated, tokens.colors.textSecondary)
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+            row.quality?.let { quality ->
+                SportsBadge(quality.label, tokens.colors.surfaceElevated, tokens.colors.textSecondary)
+                val source = when (quality.source) {
+                    SportsQualitySource.PLAYBACK -> Res.string.livetv_sports_quality_measured
+                    SportsQualitySource.PROVIDER -> Res.string.livetv_sports_quality_reported
+                    SportsQualitySource.SAVED -> Res.string.livetv_sports_quality_saved
+                }
+                Text(stringResource(source), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
+                quality.reportedRateLabel?.let { label ->
+                    Text(stringResource(Res.string.livetv_sports_quality_reported_format, label),
+                        style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
+                }
+            }
+            when {
+                m.score >= 150 -> SportsBadge(stringResource(Res.string.livetv_sports_your_pick), tokens.colors.accent, tokens.colors.onAccent)
+                // The guide line says it already; only "maybe" stays next to it.
+                m.sure && guide == null && ev?.state != GameState.POST -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
+                !m.sure -> SportsBadge(stringResource(Res.string.livetv_sports_maybe), tokens.colors.surfaceElevated, tokens.colors.textSecondary)
+            }
         }
         Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = tokens.colors.textPrimary)
     }
