@@ -757,6 +757,7 @@ private fun ExoPlayerSurface(
     }
 
     DisposableEffect(exoPlayer) {
+        var mimeProbeJob: Job? = null
         PlayerPictureInPictureManager.registerPausePlaybackCallback {
             exoPlayer.pause()
         }
@@ -833,11 +834,18 @@ private fun ExoPlayerSurface(
 
                 if (isSourceError && !stallSession.probeAttempted) {
                     stallSession.markMimeProbe()
-                    coroutineScope.launch {
+                    val retryPositionMs = exoPlayer.contentPosition
+                    val retryDurationMs = exoPlayer.contentDuration
+                    val seekableOnDemand = !continuousLive && !exoPlayer.isCurrentMediaItemLive &&
+                        exoPlayer.isCurrentMediaItemSeekable
+                    mimeProbeJob = coroutineScope.launch {
                         val probedMime = withContext(Dispatchers.IO) {
                             probeMimeType(sourceUrl, sanitizedSourceHeaders, stalkerMediaPolicy)
                         }
-                        if (probedMime != null) {
+                        if (exoPlayer.playerError !== error) return@launch
+                        if (probedMime != null && probedMime != resolvedMediaItem.localConfiguration?.mimeType) {
+                            stallSession.onMimeProbeSucceeded(retryPositionMs, retryDurationMs, seekableOnDemand)
+                            if (stallSession.isReopening()) preserveAudioSelectionForReload("MIME retry")
                             Log.d(TAG, "Playback failed with source error. Probed MIME type: $probedMime. Retrying...")
                             resolvedMediaItem = resolvedMediaItem.buildUpon()
                                 .setMimeType(probedMime)
@@ -987,6 +995,7 @@ private fun ExoPlayerSurface(
         }
         exoPlayer.addListener(listener)
         onDispose {
+            mimeProbeJob?.cancel()
             PlayerPictureInPictureManager.registerPausePlaybackCallback(null)
             PlayerPictureInPictureManager.registerTogglePlaybackCallback(null)
             exoPlayer.removeListener(listener)
